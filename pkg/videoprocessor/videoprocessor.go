@@ -79,6 +79,7 @@ type VideoSplitterOptions struct {
 	Skip           string
 	TargetPlatform string
 	Verbose        bool
+	Obscurify      bool
 }
 
 // VideoMetadata contains metadata about a video file
@@ -91,10 +92,12 @@ type VideoMetadata struct {
 
 // VideoTemplateOptions defines options for applying video templates
 type VideoTemplateOptions struct {
-	InputPaths   []string
-	OutputPath   string
-	TemplateType string
-	Verbose      bool
+	InputPaths      []string
+	OutputPath      string
+	TemplateType    string
+	Verbose         bool
+	Obscurify       bool
+	BottomRightText string
 }
 
 // VideoDimensions represents width and height of a video
@@ -115,17 +118,20 @@ type VideoOptimizationParams struct {
 
 // Constants for video processing
 const (
-	// Output resolution (1920x1080)
-	OutputWidth  = 1920
-	OutputHeight = 1080
+	// Output resolution (1280x720)
+	OutputWidth  = 1280
+	OutputHeight = 720
 
 	// Template dimensions
+	Template1x1Width  = OutputWidth      // 1920
+	Template1x1Height = OutputHeight     // 1080
 	Template2x2Width  = OutputWidth / 2  // 960
 	Template2x2Height = OutputHeight / 2 // 540
 	Template3x1Width  = OutputWidth / 3  // 640
 	Template3x1Height = OutputHeight     // 1080
 
 	// Target maximum file sizes (in bytes)
+	Template1x1MaxSize = 30 * 1024 * 1024 // 30MB for single video
 	Template2x2MaxSize = 8 * 1024 * 1024  // 8MB per quadrant
 	Template3x1MaxSize = 10 * 1024 * 1024 // 10MB per third
 	MaxTotalFileSize   = 50 * 1024 * 1024 // 50MB total
@@ -136,6 +142,13 @@ const (
 
 	// Temporary directory prefix
 	TempDirPrefix = "video_template_"
+
+	// Text overlay settings
+	TextSize        = "72"    // Font size for bottom right text
+	TextPadding     = "20"    // Padding from edges
+	TextColor       = "white" // Text color
+	TextBorderColor = "black" // Text border color
+	TextBorderWidth = "2"     // Text border width
 )
 
 // GetSupportedPlatforms returns a list of supported social media platforms
@@ -385,6 +398,14 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	var targetSize int64
 
 	switch opts.TemplateType {
+	case "1x1":
+		if len(opts.InputPaths) > 1 {
+			log.Printf("Warning: 1x1 template only uses first video, ignoring remaining %d videos",
+				len(opts.InputPaths)-1)
+			opts.InputPaths = opts.InputPaths[:1]
+		}
+		targetDims = VideoDimensions{Width: Template1x1Width, Height: Template1x1Height}
+		targetSize = Template1x1MaxSize
 	case "2x2":
 		if len(opts.InputPaths) > 4 {
 			log.Printf("Warning: 2x2 template only uses first 4 videos, ignoring remaining %d videos",
@@ -410,6 +431,16 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	}
 
 	for i, inputPath := range opts.InputPaths {
+		// First apply obscurify effects if enabled
+		processedPath := inputPath
+		if opts.Obscurify {
+			obscurifiedPath := filepath.Join(tempDir, fmt.Sprintf("obscurified_%d.mp4", i))
+			if err := applyObscurifyEffects(inputPath, obscurifiedPath, opts.Verbose); err != nil {
+				return fmt.Errorf("failed to apply obscurify effects to video %s: %v", inputPath, err)
+			}
+			processedPath = obscurifiedPath
+		}
+
 		optimizedPath := filepath.Join(tempDir, fmt.Sprintf("optimized_%d.mp4", i))
 		optimizedPaths = append(optimizedPaths, optimizedPath)
 
@@ -418,7 +449,7 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 			Height:         targetDims.Height,
 			TargetFilesize: targetSize,
 			OutputPath:     optimizedPath,
-			InputPath:      inputPath,
+			InputPath:      processedPath,
 		}, opts.Verbose)
 
 		if err != nil {
@@ -433,6 +464,8 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 
 	var output *ffmpeg.Stream
 	switch opts.TemplateType {
+	case "1x1":
+		output = process1x1Template(streams[0])
 	case "2x2":
 		output = process2x2Template(streams)
 	case "3x1":
@@ -699,4 +732,99 @@ func ensureValidDimensions(dims VideoDimensions) VideoDimensions {
 		Width:  width,
 		Height: height,
 	}
+}
+
+func applyObscurifyEffects(inputPath, outputPath string, verbose bool) error {
+	if verbose {
+		log.Printf("Applying obscurify effects to: %s", inputPath)
+	}
+
+	// Get video metadata for proper scaling calculations
+	metadata, err := GetVideoMetadata(inputPath)
+	if err != nil {
+		return fmt.Errorf("failed to get video metadata: %v", err)
+	}
+
+	// Calculate new dimensions for 5% zoom
+	zoomScale := 1.05
+	zoomWidth := int(float64(metadata.Width) * zoomScale)
+	zoomHeight := int(float64(metadata.Height) * zoomScale)
+
+	// Build the complete ffmpeg command with all effects
+	stream := ffmpeg.Input(inputPath)
+
+	// Create complex filtergraph
+	stream = stream.Filter("scale", ffmpeg.Args{
+		fmt.Sprintf("%d:%d", zoomWidth, zoomHeight),
+	}).Filter("crop", ffmpeg.Args{
+		fmt.Sprintf("%d:%d", metadata.Width, metadata.Height),
+	}).
+		/*
+			Filter("hflip", ffmpeg.Args{
+				// empty args for hflip as it doesn't need parameters
+			}).
+		*/
+		Filter("eq", ffmpeg.Args{
+			fmt.Sprintf("gamma=%f", 1.05),
+		}).Filter("vibrance", ffmpeg.Args{
+		fmt.Sprintf("intensity=%f", 0.05),
+	})
+
+	err = stream.Output(outputPath, ffmpeg.KwArgs{
+		"c:v":       "libx264",
+		"preset":    "medium",
+		"crf":       23,
+		"filter:a":  "asetrate=44100*1.05,volume=0.9", // 5% pitch up, 10% volume decrease
+		"af":        "atempo=1.1",                     // 10% speed increase
+		"pix_fmt":   "yuv420p",
+		"movflags":  "+faststart",
+		"threads":   "0",
+		"profile:v": "high",
+		"level":     "4.1",
+	}).OverWriteOutput().ErrorToStdOut().Run()
+
+	if err != nil {
+		return fmt.Errorf("failed to apply obscurify effects: %v", err)
+	}
+
+	return nil
+}
+
+func process1x1Template(input *ffmpeg.Stream) *ffmpeg.Stream {
+	return input.Filter("scale", ffmpeg.Args{
+		fmt.Sprintf("%d:%d:force_original_aspect_ratio=decrease", Template1x1Width, Template1x1Height),
+	}).Filter("pad", ffmpeg.Args{
+		fmt.Sprintf("%d:%d:(ow-iw)/2:(oh-ih)/2", Template1x1Width, Template1x1Height),
+	}, ffmpeg.KwArgs{
+		"color": "black",
+	})
+}
+
+func addBottomRightText(input *ffmpeg.Stream, text string) *ffmpeg.Stream {
+	// Construct the drawtext filter string manually since we need to use Args instead of KwArgs
+	drawTextFilter := fmt.Sprintf(
+		"drawtext=text='%s':"+
+			"fontsize=%s:"+
+			"fontcolor=%s:"+
+			"bordercolor=%s:"+
+			"borderw=%s:"+
+			"x=w-tw-%s:"+
+			"y=h-th-%s:"+
+			"shadowcolor=black:"+
+			"shadowx=2:"+
+			"shadowy=2:"+
+			"font=sans:"+
+			"box=1:"+
+			"boxcolor=black@0.5:"+
+			"boxborderw=5",
+		text,
+		TextSize,
+		TextColor,
+		TextBorderColor,
+		TextBorderWidth,
+		TextPadding,
+		TextPadding,
+	)
+
+	return input.Filter("drawtext", ffmpeg.Args{drawTextFilter})
 }

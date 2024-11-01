@@ -69,6 +69,7 @@ Example:
 		Long: `Arrange multiple videos in predefined layouts.
 
 Supported templates:
+- 1x1: Single video with optional text overlay
 - 2x2: Arrange 4 videos in a 2x2 grid
 - 3x1: Arrange 3 videos side by side
 
@@ -81,10 +82,14 @@ Example:
 			outputPath, _ := cmd.Flags().GetString("output")
 			templateType, _ := cmd.Flags().GetString("video-template")
 			verbose, _ := cmd.Flags().GetBool("verbose")
+			obscurify, _ := cmd.Flags().GetBool("obscurify")
+			bottomRightText, _ := cmd.Flags().GetString("bottom-right-text")
 
 			opts.OutputPath = outputPath
 			opts.TemplateType = templateType
 			opts.Verbose = verbose
+			opts.Obscurify = obscurify
+			opts.BottomRightText = bottomRightText
 
 			if opts.OutputPath == "" {
 				return fmt.Errorf("output path is required")
@@ -119,8 +124,10 @@ func init() {
 
 	// Template command flags
 	templateCmd.Flags().StringP("output", "o", "", "Output video path")
-	templateCmd.Flags().String("video-template", "", "Template type (2x2 or 3x1)")
+	templateCmd.Flags().String("video-template", "", "Template type (1x1 or 2x2 or 3x1)")
 	templateCmd.Flags().BoolP("verbose", "v", false, "Enable verbose logging")
+	templateCmd.Flags().Bool("obscurify", false, "Apply obscurify effects to input videos")
+	templateCmd.Flags().String("bottom-right-text", "", "Add text overlay to bottom right of video")
 
 	templateCmd.MarkFlagRequired("output")
 	templateCmd.MarkFlagRequired("video-template")
