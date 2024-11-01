@@ -144,7 +144,7 @@ const (
 	TempDirPrefix = "video_template_"
 
 	// Text overlay settings
-	TextSize        = "72"    // Font size for bottom right text
+	TextSize        = "56"    // Font size for bottom right text
 	TextPadding     = "20"    // Padding from edges
 	TextColor       = "white" // Text color
 	TextBorderColor = "black" // Text border color
@@ -465,11 +465,19 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	var output *ffmpeg.Stream
 	switch opts.TemplateType {
 	case "1x1":
+		if len(streams) == 0 {
+			return fmt.Errorf("no input streams available")
+		}
+
 		output = process1x1Template(streams[0])
 	case "2x2":
 		output = process2x2Template(streams)
 	case "3x1":
 		output = process3x1Template(streams)
+	}
+
+	if opts.BottomRightText != "" && output != nil {
+		output = addBottomRightText(output, opts.BottomRightText)
 	}
 
 	if opts.Verbose {
@@ -791,40 +799,40 @@ func applyObscurifyEffects(inputPath, outputPath string, verbose bool) error {
 }
 
 func process1x1Template(input *ffmpeg.Stream) *ffmpeg.Stream {
-	return input.Filter("scale", ffmpeg.Args{
+	// Scale the video while maintaining aspect ratio
+	scaled := input.Filter("scale", ffmpeg.Args{
 		fmt.Sprintf("%d:%d:force_original_aspect_ratio=decrease", Template1x1Width, Template1x1Height),
-	}).Filter("pad", ffmpeg.Args{
-		fmt.Sprintf("%d:%d:(ow-iw)/2:(oh-ih)/2", Template1x1Width, Template1x1Height),
-	}, ffmpeg.KwArgs{
-		"color": "black",
+	})
+
+	// Add padding to center the video
+	return scaled.Filter("pad", ffmpeg.Args{
+		fmt.Sprintf("%d:%d:(ow-iw)/2:(oh-ih)/2:black", Template1x1Width, Template1x1Height),
 	})
 }
 
 func addBottomRightText(input *ffmpeg.Stream, text string) *ffmpeg.Stream {
-	// Construct the drawtext filter string manually since we need to use Args instead of KwArgs
+	// Escape single quotes in the text
+	escapedText := strings.ReplaceAll(text, "'", "'\\''")
+
+	// Construct the drawtext filter string without the duplicate 'drawtext='
 	drawTextFilter := fmt.Sprintf(
-		"drawtext=text='%s':"+
+		"text='%s':"+
 			"fontsize=%s:"+
 			"fontcolor=%s:"+
-			"bordercolor=%s:"+
 			"borderw=%s:"+
 			"x=w-tw-%s:"+
 			"y=h-th-%s:"+
 			"shadowcolor=black:"+
 			"shadowx=2:"+
 			"shadowy=2:"+
-			"font=sans:"+
-			"box=1:"+
-			"boxcolor=black@0.5:"+
-			"boxborderw=5",
-		text,
+			escapedText,
 		TextSize,
 		TextColor,
-		TextBorderColor,
 		TextBorderWidth,
 		TextPadding,
 		TextPadding,
 	)
 
+	// Create a complex filtergraph for the text overlay
 	return input.Filter("drawtext", ffmpeg.Args{drawTextFilter})
 }
