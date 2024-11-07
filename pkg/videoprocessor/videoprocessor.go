@@ -144,7 +144,7 @@ const (
 	TempDirPrefix = "video_template_"
 
 	// Text overlay settings
-	TextSize        = "56"    // Font size for bottom right text
+	TextSize        = "36"    // Font size for bottom right text
 	TextPadding     = "20"    // Padding from edges
 	TextColor       = "white" // Text color
 	TextBorderColor = "black" // Text border color
@@ -819,15 +819,20 @@ func addBottomRightText(input *ffmpeg.Stream, text string) *ffmpeg.Stream {
 		"text='%s':"+
 			"fontsize=%s:"+
 			"fontcolor=%s:"+
+			"bordercolor=%s:"+
 			"borderw=%s:"+
 			"x=w-tw-%s:"+
 			"y=h-th-%s:"+
 			"shadowcolor=black:"+
 			"shadowx=2:"+
 			"shadowy=2:"+
-			escapedText,
+			"box=1:"+
+			"boxcolor=black@0.5:"+
+			"boxborderw=5",
+		escapedText,
 		TextSize,
 		TextColor,
+		TextBorderColor,
 		TextBorderWidth,
 		TextPadding,
 		TextPadding,
