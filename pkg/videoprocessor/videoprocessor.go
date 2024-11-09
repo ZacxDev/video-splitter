@@ -15,7 +15,6 @@ import (
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
 
-// PlatformSpec defines specifications for different social media platforms
 type PlatformSpec struct {
 	MaxWidth     int
 	MaxHeight    int
@@ -25,6 +24,7 @@ type PlatformSpec struct {
 	AudioCodec   string
 	VideoBitrate string
 	AudioBitrate string
+	Container    string // Added container format field
 }
 
 // Platform specifications
@@ -34,40 +34,44 @@ var PlatformSpecs = map[string]PlatformSpec{
 		MaxHeight:    1920,
 		MaxDuration:  90,
 		MaxFileSize:  250 * 1024 * 1024,
-		VideoCodec:   "h264",
-		AudioCodec:   "aac",
+		VideoCodec:   "libvpx-vp9", // Updated to VP9
+		AudioCodec:   "libopus",    // Updated to Opus
 		VideoBitrate: "2M",
 		AudioBitrate: "128k",
+		Container:    "webm",
 	},
 	"tiktok": {
 		MaxWidth:     1080,
 		MaxHeight:    1920,
 		MaxDuration:  180,
 		MaxFileSize:  287 * 1024 * 1024,
-		VideoCodec:   "h264",
-		AudioCodec:   "aac",
+		VideoCodec:   "libvpx-vp9",
+		AudioCodec:   "libopus",
 		VideoBitrate: "2M",
 		AudioBitrate: "128k",
+		Container:    "webm",
 	},
 	"x-twitter": {
 		MaxWidth:     1920,
 		MaxHeight:    1200,
 		MaxDuration:  140,
 		MaxFileSize:  512 * 1024 * 1024,
-		VideoCodec:   "h264",
-		AudioCodec:   "aac",
+		VideoCodec:   "libvpx-vp9",
+		AudioCodec:   "libopus",
 		VideoBitrate: "2M",
 		AudioBitrate: "128k",
+		Container:    "webm",
 	},
 	"reddit": {
 		MaxWidth:     1920,
 		MaxHeight:    1080,
 		MaxDuration:  900,
 		MaxFileSize:  1024 * 1024 * 1024,
-		VideoCodec:   "h264",
-		AudioCodec:   "aac",
+		VideoCodec:   "libvpx-vp9",
+		AudioCodec:   "libopus",
 		VideoBitrate: "4M",
 		AudioBitrate: "192k",
+		Container:    "webm",
 	},
 }
 
@@ -137,8 +141,13 @@ const (
 	MaxTotalFileSize   = 50 * 1024 * 1024 // 50MB total
 
 	// Quality thresholds
-	MinCRF = 18 // Best quality
+	MinCRF = 20 // Best quality
 	MaxCRF = 28 // Lowest acceptable quality
+
+	MinCQ       = 18 // Best quality (lower is better for VP9)
+	MaxCQ       = 35 // Lowest acceptable quality
+	Speed       = 1  // Encoding speed (0-5, lower is better quality but slower)
+	TileColumns = 2  // Number of tile columns for parallel processing
 
 	// Temporary directory prefix
 	TempDirPrefix = "video_template_"
@@ -220,7 +229,7 @@ func SplitVideo(opts *VideoSplitterOptions) error {
 
 	for i := 0; i < numChunks; i++ {
 		startTime := float64(i*opts.ChunkDuration) + skipSeconds
-		outputFileName := fmt.Sprintf("%s_chunk_%03d.mp4", baseFileName, i+1)
+		outputFileName := fmt.Sprintf("%s_chunk_%03d.webm", baseFileName, i+1)
 		outputPath := filepath.Join(opts.OutputDir, outputFileName)
 
 		if opts.Verbose {
@@ -268,8 +277,10 @@ func SplitVideo(opts *VideoSplitterOptions) error {
 				outputOptions["b:v"] = platformSpec.VideoBitrate
 				outputOptions["b:a"] = platformSpec.AudioBitrate
 			} else {
-				outputOptions["c:v"] = "libx264"
-				outputOptions["c:a"] = "aac"
+				outputOptions["c:v"] = "libvpx-vp9"
+				outputOptions["c:a"] = "libopus"
+				outputOptions["crf"] = MinCQ
+				outputOptions["b:v"] = "0"
 			}
 
 			outputOptions["preset"] = "fast"
@@ -397,6 +408,7 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	var targetDims VideoDimensions
 	var targetSize int64
 
+	// Set target dimensions and size based on template type
 	switch opts.TemplateType {
 	case "1x1":
 		if len(opts.InputPaths) > 1 {
@@ -434,14 +446,14 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 		// First apply obscurify effects if enabled
 		processedPath := inputPath
 		if opts.Obscurify {
-			obscurifiedPath := filepath.Join(tempDir, fmt.Sprintf("obscurified_%d.mp4", i))
+			obscurifiedPath := filepath.Join(tempDir, fmt.Sprintf("obscurified_%d.webm", i)) // Changed to .webm
 			if err := applyObscurifyEffects(inputPath, obscurifiedPath, opts.Verbose); err != nil {
 				return fmt.Errorf("failed to apply obscurify effects to video %s: %v", inputPath, err)
 			}
 			processedPath = obscurifiedPath
 		}
 
-		optimizedPath := filepath.Join(tempDir, fmt.Sprintf("optimized_%d.mp4", i))
+		optimizedPath := filepath.Join(tempDir, fmt.Sprintf("optimized_%d.webm", i)) // Changed to .webm
 		optimizedPaths = append(optimizedPaths, optimizedPath)
 
 		err := optimizeVideo(VideoOptimizationParams{
@@ -457,6 +469,12 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 		}
 	}
 
+	// Ensure output path has .webm extension
+	outputPath := opts.OutputPath
+	if !strings.HasSuffix(outputPath, ".webm") {
+		outputPath = strings.TrimSuffix(outputPath, filepath.Ext(outputPath)) + ".webm"
+	}
+
 	streams := make([]*ffmpeg.Stream, len(optimizedPaths))
 	for i, path := range optimizedPaths {
 		streams[i] = ffmpeg.Input(path)
@@ -465,10 +483,6 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	var output *ffmpeg.Stream
 	switch opts.TemplateType {
 	case "1x1":
-		if len(streams) == 0 {
-			return fmt.Errorf("no input streams available")
-		}
-
 		output = process1x1Template(streams[0])
 	case "2x2":
 		output = process2x2Template(streams)
@@ -481,31 +495,31 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	}
 
 	if opts.Verbose {
-		log.Printf("Creating final output video: %s", opts.OutputPath)
+		log.Printf("Creating final output video: %s", outputPath)
 	}
 
-	err = output.Output(opts.OutputPath, ffmpeg.KwArgs{
-		"c:v":       "libx264",
-		"preset":    "veryslow",
-		"crf":       MinCRF,
-		"movflags":  "+faststart",
-		"pix_fmt":   "yuv420p",
-		"tune":      "film",
-		"x264opts":  "rc-lookahead=60:ref=6:me=umh:subme=10:trellis=2:deblock=-2,-2",
-		"threads":   "0",
-		"profile:v": "high",
-		"level":     "4.1",
-		"c:a":       "aac",
-		"b:a":       "128k",
-		"ac":        "2",
-		"ar":        "44100",
+	err = output.Output(outputPath, ffmpeg.KwArgs{
+		"c:v":            "libvpx-vp9",
+		"crf":            MinCQ,
+		"b:v":            "0",
+		"tile-columns":   TileColumns,
+		"frame-parallel": 1,
+		"auto-alt-ref":   1,
+		"lag-in-frames":  25,
+		"speed":          Speed,
+		"row-mt":         1,
+		"pix_fmt":        "yuv420p",
+		"c:a":            "libopus",
+		"b:a":            "128k",
+		"ac":             2,
+		"ar":             "48000",
 	}).OverWriteOutput().ErrorToStdOut().Run()
 
 	if err != nil {
 		return fmt.Errorf("failed to create final video: %v", err)
 	}
 
-	finalFileInfo, err := os.Stat(opts.OutputPath)
+	finalFileInfo, err := os.Stat(outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to get final file info: %v", err)
 	}
@@ -516,25 +530,28 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 				finalFileInfo.Size())
 		}
 
-		adjustedCRF := MinCRF + 5
-		err = ffmpeg.Input(opts.OutputPath).
-			Output(opts.OutputPath+".tmp", ffmpeg.KwArgs{
-				"c:v":      "libx264",
-				"preset":   "veryslow",
-				"crf":      adjustedCRF,
-				"movflags": "+faststart",
-				"pix_fmt":  "yuv420p",
-				"tune":     "film",
-				"x264opts": "rc-lookahead=60:ref=6:me=umh:subme=10:trellis=2:deblock=-2,-2",
-				"threads":  "0",
-				"c:a":      "copy",
+		tempOutput := outputPath + ".tmp.webm" // Changed to .webm
+		adjustedCQ := MinCQ + 10
+		err = ffmpeg.Input(outputPath).
+			Output(tempOutput, ffmpeg.KwArgs{
+				"c:v":            "libvpx-vp9",
+				"crf":            adjustedCQ,
+				"b:v":            "0",
+				"tile-columns":   TileColumns,
+				"frame-parallel": 1,
+				"auto-alt-ref":   1,
+				"lag-in-frames":  25,
+				"speed":          Speed,
+				"row-mt":         1,
+				"pix_fmt":        "yuv420p",
+				"c:a":            "copy",
 			}).OverWriteOutput().ErrorToStdOut().Run()
 
 		if err != nil {
 			return fmt.Errorf("failed to re-encode final video: %v", err)
 		}
 
-		err = os.Rename(opts.OutputPath+".tmp", opts.OutputPath)
+		err = os.Rename(tempOutput, outputPath)
 		if err != nil {
 			return fmt.Errorf("failed to replace final video: %v", err)
 		}
@@ -586,7 +603,7 @@ func optimizeVideo(params VideoOptimizationParams, verbose bool) error {
 	optimalDims := calculateOptimalDimensions(metadata.Width, metadata.Height,
 		VideoDimensions{Width: params.Width, Height: params.Height})
 
-	currentCRF := MinCRF
+	currentCQ := MinCQ
 
 	for attempts := 0; attempts < 3; attempts++ {
 		input := ffmpeg.Input(params.InputPath)
@@ -608,44 +625,46 @@ func optimizeVideo(params VideoOptimizationParams, verbose bool) error {
 			})
 		}
 
-		err = stream.Output(params.OutputPath, ffmpeg.KwArgs{
-			"c:v":       "libx264",
-			"preset":    "veryslow",
-			"crf":       currentCRF,
-			"movflags":  "+faststart",
-			"pix_fmt":   "yuv420p",
-			"tune":      "film",
-			"x264opts":  "rc-lookahead=60:ref=6:me=umh:subme=10:trellis=2:deblock=-2,-2",
-			"threads":   "0",
-			"profile:v": "high",
-			"level":     "4.1",
-			"c:a":       "aac",
-			"b:a":       "128k",
-			"ac":        "2",
-			"ar":        "44100",
+		outputPath := strings.TrimSuffix(params.OutputPath, filepath.Ext(params.OutputPath)) + ".webm"
+
+		err = stream.Output(outputPath, ffmpeg.KwArgs{
+			"c:v":            "libvpx-vp9",
+			"crf":            currentCQ,
+			"b:v":            "0", // Variable bitrate
+			"tile-columns":   TileColumns,
+			"frame-parallel": 1,
+			"auto-alt-ref":   1,
+			"lag-in-frames":  25,
+			"speed":          Speed,
+			"row-mt":         1,
+			"pix_fmt":        "yuv420p",
+			"c:a":            "libopus",
+			"b:a":            "128k",
+			"ac":             2,
+			"ar":             "48000", // Opus preferred sample rate
 		}).OverWriteOutput().ErrorToStdOut().Run()
 
 		if err != nil {
 			return fmt.Errorf("failed to optimize video: %v", err)
 		}
 
-		fileInfo, err := os.Stat(params.OutputPath)
+		fileInfo, err := os.Stat(outputPath)
 		if err != nil {
 			return fmt.Errorf("failed to get optimized file info: %v", err)
 		}
 
-		if fileInfo.Size() <= params.TargetFilesize || currentCRF >= MaxCRF {
+		if fileInfo.Size() <= params.TargetFilesize || currentCQ >= MaxCQ {
 			break
 		}
 
-		currentCRF += 5
-		if currentCRF > MaxCRF {
-			currentCRF = MaxCRF
+		currentCQ += 5
+		if currentCQ > MaxCQ {
+			currentCQ = MaxCQ
 		}
 
 		if verbose {
-			log.Printf("File size too large (%d bytes), retrying with CRF %d",
-				fileInfo.Size(), currentCRF)
+			log.Printf("File size too large (%d bytes), retrying with CQ %d",
+				fileInfo.Size(), currentCQ)
 		}
 	}
 
@@ -767,11 +786,6 @@ func applyObscurifyEffects(inputPath, outputPath string, verbose bool) error {
 	}).Filter("crop", ffmpeg.Args{
 		fmt.Sprintf("%d:%d", metadata.Width, metadata.Height),
 	}).
-		/*
-			Filter("hflip", ffmpeg.Args{
-				// empty args for hflip as it doesn't need parameters
-			}).
-		*/
 		Filter("eq", ffmpeg.Args{
 			fmt.Sprintf("gamma=%f", 1.05),
 		}).Filter("vibrance", ffmpeg.Args{
@@ -779,16 +793,22 @@ func applyObscurifyEffects(inputPath, outputPath string, verbose bool) error {
 	})
 
 	err = stream.Output(outputPath, ffmpeg.KwArgs{
-		"c:v":       "libx264",
-		"preset":    "medium",
-		"crf":       23,
-		"filter:a":  "asetrate=44100*1.05,volume=0.9", // 5% pitch up, 10% volume decrease
-		"af":        "atempo=1.1",                     // 10% speed increase
-		"pix_fmt":   "yuv420p",
-		"movflags":  "+faststart",
-		"threads":   "0",
-		"profile:v": "high",
-		"level":     "4.1",
+		"c:v":            "libvpx-vp9",
+		"crf":            MinCQ,
+		"b:v":            "0",
+		"tile-columns":   TileColumns,
+		"frame-parallel": 1,
+		"auto-alt-ref":   1,
+		"lag-in-frames":  25,
+		"speed":          Speed,
+		"row-mt":         1,
+		"pix_fmt":        "yuv420p",
+		"c:a":            "libopus",
+		"b:a":            "128k",
+		"filter:a":       "asetrate=48000*1.05,volume=0.9", // Updated sample rate for Opus
+		"af":             "atempo=1.1",                     // 10% speed increase
+		"ac":             2,
+		"ar":             "48000", // Opus preferred sample rate
 	}).OverWriteOutput().ErrorToStdOut().Run()
 
 	if err != nil {
