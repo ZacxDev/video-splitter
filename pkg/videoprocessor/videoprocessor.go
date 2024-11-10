@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -579,6 +581,12 @@ func sanitizeFilename(filename string) string {
 	return sanitized
 }
 
+func getOptimalThreadCount() int {
+	cpuCount := runtime.NumCPU()
+	// Use 75% of available cores to prevent overload
+	return int(math.Max(1, float64(cpuCount)*0.75))
+}
+
 func optimizeVideo(params VideoOptimizationParams, verbose bool) error {
 	params.OutputPath = ensureWebMExtension(params.OutputPath)
 
@@ -596,6 +604,7 @@ func optimizeVideo(params VideoOptimizationParams, verbose bool) error {
 		VideoDimensions{Width: params.Width, Height: params.Height})
 
 	currentCRF := MinCRF
+	threadCount := getOptimalThreadCount()
 
 	for attempts := 0; attempts < 3; attempts++ {
 		input := ffmpeg.Input(params.InputPath)
@@ -628,6 +637,7 @@ func optimizeVideo(params VideoOptimizationParams, verbose bool) error {
 			"frame-parallel": 1,            // Enable frame parallel decoding
 			"auto-alt-ref":   1,            // Enable alternative reference frames
 			"lag-in-frames":  25,           // Number of frames to look ahead
+			"threads":        threadCount,  // Limit thread count
 			"g":              240,          // Keyframe interval
 			"keyint_min":     120,          // Minimum keyframe interval
 			"pix_fmt":        "yuv420p",    // Pixel format
