@@ -15,6 +15,7 @@ import (
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
 
+// PlatformSpec defines specifications for different social media platforms
 type PlatformSpec struct {
 	MaxWidth     int
 	MaxHeight    int
@@ -24,7 +25,6 @@ type PlatformSpec struct {
 	AudioCodec   string
 	VideoBitrate string
 	AudioBitrate string
-	Container    string // Added container format field
 }
 
 // Platform specifications
@@ -34,11 +34,10 @@ var PlatformSpecs = map[string]PlatformSpec{
 		MaxHeight:    1920,
 		MaxDuration:  90,
 		MaxFileSize:  250 * 1024 * 1024,
-		VideoCodec:   "libvpx-vp9", // Updated to VP9
-		AudioCodec:   "libopus",    // Updated to Opus
+		VideoCodec:   "libvpx-vp9",
+		AudioCodec:   "libopus",
 		VideoBitrate: "2M",
 		AudioBitrate: "128k",
-		Container:    "webm",
 	},
 	"tiktok": {
 		MaxWidth:     1080,
@@ -49,7 +48,6 @@ var PlatformSpecs = map[string]PlatformSpec{
 		AudioCodec:   "libopus",
 		VideoBitrate: "2M",
 		AudioBitrate: "128k",
-		Container:    "webm",
 	},
 	"x-twitter": {
 		MaxWidth:     1920,
@@ -60,7 +58,6 @@ var PlatformSpecs = map[string]PlatformSpec{
 		AudioCodec:   "libopus",
 		VideoBitrate: "2M",
 		AudioBitrate: "128k",
-		Container:    "webm",
 	},
 	"reddit": {
 		MaxWidth:     1920,
@@ -71,7 +68,6 @@ var PlatformSpecs = map[string]PlatformSpec{
 		AudioCodec:   "libopus",
 		VideoBitrate: "4M",
 		AudioBitrate: "192k",
-		Container:    "webm",
 	},
 }
 
@@ -141,13 +137,8 @@ const (
 	MaxTotalFileSize   = 50 * 1024 * 1024 // 50MB total
 
 	// Quality thresholds
-	MinCRF = 20 // Best quality
+	MinCRF = 18 // Best quality
 	MaxCRF = 28 // Lowest acceptable quality
-
-	MinCQ       = 18 // Best quality (lower is better for VP9)
-	MaxCQ       = 35 // Lowest acceptable quality
-	Speed       = 1  // Encoding speed (0-5, lower is better quality but slower)
-	TileColumns = 2  // Number of tile columns for parallel processing
 
 	// Temporary directory prefix
 	TempDirPrefix = "video_template_"
@@ -236,18 +227,37 @@ func SplitVideo(opts *VideoSplitterOptions) error {
 			log.Printf("Processing chunk %d/%d: %s\n", i+1, numChunks, outputPath)
 		}
 
+		// Always use re-encoding for WebM output
 		input := ffmpeg.Input(opts.InputPath, ffmpeg.KwArgs{
 			"ss": startTime,
 		})
 
 		outputOptions := ffmpeg.KwArgs{}
-
 		if i < numChunks-1 {
 			outputOptions["t"] = opts.ChunkDuration
 		}
 
-		outputOptions["c:v"] = "copy"
-		outputOptions["c:a"] = "copy"
+		if usePlatformSpec {
+			outputOptions["c:v"] = platformSpec.VideoCodec
+			outputOptions["c:a"] = platformSpec.AudioCodec
+			outputOptions["b:v"] = platformSpec.VideoBitrate
+			outputOptions["b:a"] = platformSpec.AudioBitrate
+		} else {
+			outputOptions["c:v"] = "libvpx-vp9"
+			outputOptions["c:a"] = "libopus"
+			outputOptions["b:v"] = "2M"
+			outputOptions["b:a"] = "128k"
+		}
+
+		// VP9-specific options
+		outputOptions["speed"] = 2
+		outputOptions["row-mt"] = 1
+		outputOptions["tile-columns"] = 2
+		outputOptions["frame-parallel"] = 1
+		outputOptions["auto-alt-ref"] = 1
+		outputOptions["lag-in-frames"] = 25
+		outputOptions["quality"] = "good"
+		outputOptions["cpu-used"] = 2
 
 		stream := input.Output(outputPath, outputOptions)
 
@@ -256,47 +266,9 @@ func SplitVideo(opts *VideoSplitterOptions) error {
 		}
 
 		err := stream.OverWriteOutput().Run()
-
 		if err != nil {
-			if opts.Verbose {
-				log.Printf("Simple copy failed, trying with re-encoding...")
-			}
-
-			input = ffmpeg.Input(opts.InputPath, ffmpeg.KwArgs{
-				"ss": startTime,
-			})
-
-			outputOptions = ffmpeg.KwArgs{}
-			if i < numChunks-1 {
-				outputOptions["t"] = opts.ChunkDuration
-			}
-
-			if usePlatformSpec {
-				outputOptions["c:v"] = platformSpec.VideoCodec
-				outputOptions["c:a"] = platformSpec.AudioCodec
-				outputOptions["b:v"] = platformSpec.VideoBitrate
-				outputOptions["b:a"] = platformSpec.AudioBitrate
-			} else {
-				outputOptions["c:v"] = "libvpx-vp9"
-				outputOptions["c:a"] = "libopus"
-				outputOptions["crf"] = MinCQ
-				outputOptions["b:v"] = "0"
-			}
-
-			outputOptions["preset"] = "fast"
-			outputOptions["pix_fmt"] = "yuv420p"
-
-			stream = input.Output(outputPath, outputOptions)
-
-			if opts.Verbose {
-				log.Printf("Re-encode FFmpeg command: %s\n", stream.String())
-			}
-
-			err = stream.OverWriteOutput().Run()
-			if err != nil {
-				return fmt.Errorf("error processing chunk %d: %v (FFmpeg command: %s)",
-					i+1, err, stream.String())
-			}
+			return fmt.Errorf("error processing chunk %d: %v (FFmpeg command: %s)",
+				i+1, err, stream.String())
 		}
 
 		fmt.Printf("Created chunk %d of %d: %s\n", i+1, numChunks, outputPath)
@@ -398,6 +370,8 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 		return fmt.Errorf("no input videos provided")
 	}
 
+	opts.OutputPath = ensureWebMExtension(opts.OutputPath)
+
 	tempDir, err := os.MkdirTemp("", TempDirPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %v", err)
@@ -408,7 +382,6 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	var targetDims VideoDimensions
 	var targetSize int64
 
-	// Set target dimensions and size based on template type
 	switch opts.TemplateType {
 	case "1x1":
 		if len(opts.InputPaths) > 1 {
@@ -446,14 +419,14 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 		// First apply obscurify effects if enabled
 		processedPath := inputPath
 		if opts.Obscurify {
-			obscurifiedPath := filepath.Join(tempDir, fmt.Sprintf("obscurified_%d.webm", i)) // Changed to .webm
+			obscurifiedPath := filepath.Join(tempDir, ensureWebMExtension(fmt.Sprintf("obscurified_%d", i)))
 			if err := applyObscurifyEffects(inputPath, obscurifiedPath, opts.Verbose); err != nil {
 				return fmt.Errorf("failed to apply obscurify effects to video %s: %v", inputPath, err)
 			}
 			processedPath = obscurifiedPath
 		}
 
-		optimizedPath := filepath.Join(tempDir, fmt.Sprintf("optimized_%d.webm", i)) // Changed to .webm
+		optimizedPath := filepath.Join(tempDir, ensureWebMExtension(fmt.Sprintf("optimized_%d", i)))
 		optimizedPaths = append(optimizedPaths, optimizedPath)
 
 		err := optimizeVideo(VideoOptimizationParams{
@@ -469,12 +442,6 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 		}
 	}
 
-	// Ensure output path has .webm extension
-	outputPath := opts.OutputPath
-	if !strings.HasSuffix(outputPath, ".webm") {
-		outputPath = strings.TrimSuffix(outputPath, filepath.Ext(outputPath)) + ".webm"
-	}
-
 	streams := make([]*ffmpeg.Stream, len(optimizedPaths))
 	for i, path := range optimizedPaths {
 		streams[i] = ffmpeg.Input(path)
@@ -483,6 +450,10 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	var output *ffmpeg.Stream
 	switch opts.TemplateType {
 	case "1x1":
+		if len(streams) == 0 {
+			return fmt.Errorf("no input streams available")
+		}
+
 		output = process1x1Template(streams[0])
 	case "2x2":
 		output = process2x2Template(streams)
@@ -495,31 +466,41 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 	}
 
 	if opts.Verbose {
-		log.Printf("Creating final output video: %s", outputPath)
+		log.Printf("Creating final output video: %s", opts.OutputPath)
 	}
 
-	err = output.Output(outputPath, ffmpeg.KwArgs{
-		"c:v":            "libvpx-vp9",
-		"crf":            MinCQ,
-		"b:v":            "0",
-		"tile-columns":   TileColumns,
-		"frame-parallel": 1,
-		"auto-alt-ref":   1,
-		"lag-in-frames":  25,
-		"speed":          Speed,
-		"row-mt":         1,
-		"pix_fmt":        "yuv420p",
-		"c:a":            "libopus",
-		"b:a":            "128k",
-		"ac":             2,
-		"ar":             "48000",
+	err = output.Output(opts.OutputPath, ffmpeg.KwArgs{
+		// Video codec settings
+		"c:v":            "libvpx-vp9", // VP9 video codec
+		"b:v":            "0",          // Use constrained quality mode
+		"crf":            MinCRF,       // Quality level
+		"deadline":       "good",       // Encoding speed preset
+		"cpu-used":       4,            // CPU usage preset (0-8, lower is higher quality)
+		"row-mt":         1,            // Enable row-based multithreading
+		"tile-columns":   2,            // Number of tile columns
+		"frame-parallel": 1,            // Enable frame parallel decoding
+		"auto-alt-ref":   1,            // Enable alternative reference frames
+		"lag-in-frames":  25,           // Number of frames to look ahead
+		"g":              240,          // Keyframe interval
+		"keyint_min":     120,          // Minimum keyframe interval
+		"pix_fmt":        "yuv420p",    // Pixel format
+
+		// Audio codec settings
+		"c:a": "libopus", // Opus audio codec
+		"b:a": "128k",    // Audio bitrate
+		"ac":  2,         // Audio channels
+		"ar":  48000,     // Audio sample rate
+
+		// WebM container options
+		"cluster_size_limit": 2000000, // Maximum cluster size in bytes
+		"cluster_time_limit": 1000,    // Maximum cluster duration in milliseconds
 	}).OverWriteOutput().ErrorToStdOut().Run()
 
 	if err != nil {
 		return fmt.Errorf("failed to create final video: %v", err)
 	}
 
-	finalFileInfo, err := os.Stat(outputPath)
+	finalFileInfo, err := os.Stat(opts.OutputPath)
 	if err != nil {
 		return fmt.Errorf("failed to get final file info: %v", err)
 	}
@@ -530,28 +511,34 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 				finalFileInfo.Size())
 		}
 
-		tempOutput := outputPath + ".tmp.webm" // Changed to .webm
-		adjustedCQ := MinCQ + 10
-		err = ffmpeg.Input(outputPath).
-			Output(tempOutput, ffmpeg.KwArgs{
+		adjustedCRF := MinCRF + 5
+		err = ffmpeg.Input(opts.OutputPath).
+			Output(opts.OutputPath+".tmp", ffmpeg.KwArgs{
 				"c:v":            "libvpx-vp9",
-				"crf":            adjustedCQ,
 				"b:v":            "0",
-				"tile-columns":   TileColumns,
+				"crf":            adjustedCRF,
+				"deadline":       "good",
+				"cpu-used":       4,
+				"row-mt":         1,
+				"tile-columns":   2,
 				"frame-parallel": 1,
 				"auto-alt-ref":   1,
 				"lag-in-frames":  25,
-				"speed":          Speed,
-				"row-mt":         1,
+				"g":              240,
+				"keyint_min":     120,
 				"pix_fmt":        "yuv420p",
-				"c:a":            "copy",
+				"c:a":            "copy", // Copy audio stream as is
+
+				// WebM container options
+				"cluster_size_limit": 2000000,
+				"cluster_time_limit": 1000,
 			}).OverWriteOutput().ErrorToStdOut().Run()
 
 		if err != nil {
 			return fmt.Errorf("failed to re-encode final video: %v", err)
 		}
 
-		err = os.Rename(tempOutput, outputPath)
+		err = os.Rename(opts.OutputPath+".tmp", opts.OutputPath)
 		if err != nil {
 			return fmt.Errorf("failed to replace final video: %v", err)
 		}
@@ -578,6 +565,9 @@ func parseSkipDuration(skip string) (float64, error) {
 func sanitizeFilename(filename string) string {
 	sanitized := filename
 
+	// Remove the old extension if present
+	sanitized = strings.TrimSuffix(sanitized, ".mp4")
+
 	reg := regexp.MustCompile(`[^a-zA-Z0-9-_.]`)
 	sanitized = reg.ReplaceAllString(sanitized, "_")
 
@@ -590,6 +580,8 @@ func sanitizeFilename(filename string) string {
 }
 
 func optimizeVideo(params VideoOptimizationParams, verbose bool) error {
+	params.OutputPath = ensureWebMExtension(params.OutputPath)
+
 	if verbose {
 		log.Printf("Optimizing video: %s -> %s", params.InputPath, params.OutputPath)
 		log.Printf("Target dimensions: %dx%d", params.Width, params.Height)
@@ -603,7 +595,7 @@ func optimizeVideo(params VideoOptimizationParams, verbose bool) error {
 	optimalDims := calculateOptimalDimensions(metadata.Width, metadata.Height,
 		VideoDimensions{Width: params.Width, Height: params.Height})
 
-	currentCQ := MinCQ
+	currentCRF := MinCRF
 
 	for attempts := 0; attempts < 3; attempts++ {
 		input := ffmpeg.Input(params.InputPath)
@@ -625,46 +617,52 @@ func optimizeVideo(params VideoOptimizationParams, verbose bool) error {
 			})
 		}
 
-		outputPath := strings.TrimSuffix(params.OutputPath, filepath.Ext(params.OutputPath)) + ".webm"
+		err = stream.Output(params.OutputPath, ffmpeg.KwArgs{
+			"c:v":            "libvpx-vp9", // VP9 video codec
+			"b:v":            "0",          // Use constrained quality mode
+			"crf":            currentCRF,   // Quality level
+			"deadline":       "good",       // Encoding speed preset
+			"cpu-used":       4,            // CPU usage preset (0-8, lower is higher quality)
+			"row-mt":         1,            // Enable row-based multithreading
+			"tile-columns":   2,            // Number of tile columns
+			"frame-parallel": 1,            // Enable frame parallel decoding
+			"auto-alt-ref":   1,            // Enable alternative reference frames
+			"lag-in-frames":  25,           // Number of frames to look ahead
+			"g":              240,          // Keyframe interval
+			"keyint_min":     120,          // Minimum keyframe interval
+			"pix_fmt":        "yuv420p",    // Pixel format
 
-		err = stream.Output(outputPath, ffmpeg.KwArgs{
-			"c:v":            "libvpx-vp9",
-			"crf":            currentCQ,
-			"b:v":            "0", // Variable bitrate
-			"tile-columns":   TileColumns,
-			"frame-parallel": 1,
-			"auto-alt-ref":   1,
-			"lag-in-frames":  25,
-			"speed":          Speed,
-			"row-mt":         1,
-			"pix_fmt":        "yuv420p",
-			"c:a":            "libopus",
-			"b:a":            "128k",
-			"ac":             2,
-			"ar":             "48000", // Opus preferred sample rate
+			"c:a": "libopus", // Opus audio codec
+			"b:a": "128k",    // Audio bitrate
+			"ac":  2,         // Audio channels
+			"ar":  48000,     // Audio sample rate
+
+			// WebM container options
+			"cluster_size_limit": 2000000, // Maximum cluster size in bytes
+			"cluster_time_limit": 1000,    // Maximum cluster duration in milliseconds
 		}).OverWriteOutput().ErrorToStdOut().Run()
 
 		if err != nil {
 			return fmt.Errorf("failed to optimize video: %v", err)
 		}
 
-		fileInfo, err := os.Stat(outputPath)
+		fileInfo, err := os.Stat(params.OutputPath)
 		if err != nil {
 			return fmt.Errorf("failed to get optimized file info: %v", err)
 		}
 
-		if fileInfo.Size() <= params.TargetFilesize || currentCQ >= MaxCQ {
+		if fileInfo.Size() <= params.TargetFilesize || currentCRF >= MaxCRF {
 			break
 		}
 
-		currentCQ += 5
-		if currentCQ > MaxCQ {
-			currentCQ = MaxCQ
+		currentCRF += 5
+		if currentCRF > MaxCRF {
+			currentCRF = MaxCRF
 		}
 
 		if verbose {
-			log.Printf("File size too large (%d bytes), retrying with CQ %d",
-				fileInfo.Size(), currentCQ)
+			log.Printf("File size too large (%d bytes), retrying with CRF %d",
+				fileInfo.Size(), currentCRF)
 		}
 	}
 
@@ -762,25 +760,23 @@ func ensureValidDimensions(dims VideoDimensions) VideoDimensions {
 }
 
 func applyObscurifyEffects(inputPath, outputPath string, verbose bool) error {
+	outputPath = ensureWebMExtension(outputPath)
+
 	if verbose {
-		log.Printf("Applying obscurify effects to: %s", inputPath)
+		log.Printf("Applying obscurify effects to: %s -> %s", inputPath, outputPath)
 	}
 
-	// Get video metadata for proper scaling calculations
 	metadata, err := GetVideoMetadata(inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to get video metadata: %v", err)
 	}
 
-	// Calculate new dimensions for 5% zoom
 	zoomScale := 1.05
 	zoomWidth := int(float64(metadata.Width) * zoomScale)
 	zoomHeight := int(float64(metadata.Height) * zoomScale)
 
-	// Build the complete ffmpeg command with all effects
 	stream := ffmpeg.Input(inputPath)
 
-	// Create complex filtergraph
 	stream = stream.Filter("scale", ffmpeg.Args{
 		fmt.Sprintf("%d:%d", zoomWidth, zoomHeight),
 	}).Filter("crop", ffmpeg.Args{
@@ -793,22 +789,32 @@ func applyObscurifyEffects(inputPath, outputPath string, verbose bool) error {
 	})
 
 	err = stream.Output(outputPath, ffmpeg.KwArgs{
-		"c:v":            "libvpx-vp9",
-		"crf":            MinCQ,
-		"b:v":            "0",
-		"tile-columns":   TileColumns,
-		"frame-parallel": 1,
-		"auto-alt-ref":   1,
-		"lag-in-frames":  25,
-		"speed":          Speed,
-		"row-mt":         1,
-		"pix_fmt":        "yuv420p",
-		"c:a":            "libopus",
-		"b:a":            "128k",
-		"filter:a":       "asetrate=48000*1.05,volume=0.9", // Updated sample rate for Opus
-		"af":             "atempo=1.1",                     // 10% speed increase
-		"ac":             2,
-		"ar":             "48000", // Opus preferred sample rate
+		"c:v":            "libvpx-vp9", // VP9 video codec
+		"b:v":            "0",          // Use constrained quality mode
+		"crf":            23,           // Quality level
+		"deadline":       "good",       // Encoding speed preset
+		"cpu-used":       4,            // CPU usage preset (0-8, lower is higher quality)
+		"row-mt":         1,            // Enable row-based multithreading
+		"tile-columns":   2,            // Number of tile columns
+		"frame-parallel": 1,            // Enable frame parallel decoding
+		"auto-alt-ref":   1,            // Enable alternative reference frames
+		"lag-in-frames":  25,           // Number of frames to look ahead
+		"g":              240,          // Keyframe interval
+		"keyint_min":     120,          // Minimum keyframe interval
+		"pix_fmt":        "yuv420p",    // Pixel format
+
+		"c:a": "libopus", // Opus audio codec
+		"b:a": "128k",    // Audio bitrate
+		"ac":  2,         // Audio channels
+		"ar":  48000,     // Audio sample rate
+
+		// WebM container options
+		"cluster_size_limit": 2000000, // Maximum cluster size in bytes
+		"cluster_time_limit": 1000,    // Maximum cluster duration in milliseconds
+
+		// Audio filters
+		"filter:a": "asetrate=48000*1.05,volume=0.9",
+		"af":       "atempo=1.1",
 	}).OverWriteOutput().ErrorToStdOut().Run()
 
 	if err != nil {
@@ -860,4 +866,13 @@ func addBottomRightText(input *ffmpeg.Stream, text string) *ffmpeg.Stream {
 
 	// Create a complex filtergraph for the text overlay
 	return input.Filter("drawtext", ffmpeg.Args{drawTextFilter})
+}
+
+func ensureWebMExtension(filename string) string {
+	// Remove any existing video extension
+	extensions := []string{".mp4", ".webm", ".mkv", ".avi", ".mov"}
+	for _, ext := range extensions {
+		filename = strings.TrimSuffix(filename, ext)
+	}
+	return filename + ".webm"
 }
