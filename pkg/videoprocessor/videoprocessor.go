@@ -515,7 +515,7 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 
 		adjustedCRF := MinCRF + 5
 		err = ffmpeg.Input(opts.OutputPath).
-			Output(opts.OutputPath+".tmp", ffmpeg.KwArgs{
+			Output(opts.OutputPath, ffmpeg.KwArgs{
 				"c:v":            "libvpx-vp9",
 				"b:v":            "0",
 				"crf":            adjustedCRF,
@@ -540,10 +540,6 @@ func ApplyTemplate(opts *VideoTemplateOptions) error {
 			return fmt.Errorf("failed to re-encode final video: %v", err)
 		}
 
-		err = os.Rename(opts.OutputPath+".tmp", opts.OutputPath)
-		if err != nil {
-			return fmt.Errorf("failed to replace final video: %v", err)
-		}
 	}
 
 	return nil
