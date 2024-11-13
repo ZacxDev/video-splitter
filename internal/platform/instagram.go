@@ -7,7 +7,7 @@ func init() {
 }
 
 func (p *Instagram) GetName() string {
-	return "instagram_reel"
+	return "instagram-reel"
 }
 
 func (p *Instagram) GetMaxDimensions() (width, height int) {
