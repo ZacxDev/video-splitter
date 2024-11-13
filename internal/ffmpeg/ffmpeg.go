@@ -190,16 +190,121 @@ func (p *Processor) GetVideoMetadata(inputPath string) (*VideoMetadata, error) {
 }
 
 func (p *Processor) ProcessForPlatform(inputPath, outputPath string, plat platform.Platform, startTime float64, duration int) error {
+	metadata, err := p.GetVideoMetadata(inputPath)
+	if err != nil {
+		return fmt.Errorf("error probing video: %v", err)
+	}
+
+	// Get input bitrate
 	probe, err := ffmpeg.Probe(inputPath)
 	if err != nil {
 		return fmt.Errorf("error probing video: %v", err)
 	}
 
-	metadata, err := p.GetVideoMetadata(inputPath)
-	if err != nil {
-		return fmt.Errorf("failed to get video metadata: %v", err)
+	maxWidth, maxHeight := plat.GetMaxDimensions()
+
+	// Handle forced portrait mode
+	if plat.ForcePortrait() && metadata.Width > metadata.Height {
+		// For landscape videos that need to be portrait, we'll center crop
+		cropWidth := (metadata.Height * 9) / 16 // Assuming 9:16 aspect ratio for portrait
+		cropX := (metadata.Width - cropWidth) / 2
+
+		// Build the filter chain - crop first, then scale
+		filterComplex := fmt.Sprintf(
+			"crop=%d:%d:%d:0,scale=%d:%d",
+			cropWidth, metadata.Height, // crop dimensions
+			cropX,               // crop position
+			maxWidth, maxHeight, // final dimensions
+		)
+
+		if p.verbose {
+			log.Printf("Forcing portrait mode. Cropping %dx%d from center of %dx%d video\n",
+				cropWidth, metadata.Height, metadata.Width, metadata.Height)
+		}
+
+		inputBitrate, err := p.getBitrate(metadata, probe)
+		if err != nil && p.verbose {
+			log.Printf("Warning: Could not determine input bitrate: %v", err)
+		}
+
+		// Determine platform bitrate
+		platformBitrate := extractBitrateValue(plat.GetVideoBitrate()) * 1000000 // Convert to bps
+		targetBitrate := platformBitrate
+
+		// If we have the input bitrate, use it as a ceiling
+		if inputBitrate > 0 {
+			maxBitrate := int64(float64(inputBitrate) * 1.05)
+			if int64(targetBitrate) > maxBitrate {
+				if p.verbose {
+					log.Printf("Reducing target bitrate from %d to %d bps to match input",
+						targetBitrate, maxBitrate)
+				}
+				targetBitrate = int(maxBitrate)
+			}
+		}
+
+		// Convert targetBitrate to ffmpeg format
+		bitrateStr := fmt.Sprintf("%dM", targetBitrate/1000000)
+
+		inputKwargs := ffmpeg.KwArgs{
+			"ss": startTime,
+		}
+		if duration > 0 {
+			inputKwargs["t"] = duration
+		}
+
+		stream := ffmpeg.Input(inputPath, inputKwargs)
+
+		outputKwargs := ffmpeg.KwArgs{
+			"c:v":            plat.GetVideoCodec(),
+			"c:a":            plat.GetAudioCodec(),
+			"b:v":            bitrateStr,
+			"b:a":            plat.GetAudioBitrate(),
+			"filter_complex": filterComplex,
+			"pix_fmt":        "yuv420p",
+			"threads":        GetOptimalThreadCount(),
+			"movflags":       "+faststart",
+			"g":              60,
+			"keyint_min":     30,
+		}
+
+		// Add codec-specific settings
+		switch plat.GetVideoCodec() {
+		case "libx264":
+			outputKwargs["profile:v"] = "high"
+			outputKwargs["level"] = "4.0"
+			outputKwargs["preset"] = "slower"
+			outputKwargs["x264opts"] = "no-scenecut"
+			outputKwargs["maxrate"] = bitrateStr
+			outputKwargs["bufsize"] = fmt.Sprintf("%dM", 2*targetBitrate/1000000)
+
+		case "libvpx-vp9":
+			outputKwargs["deadline"] = "good"
+			outputKwargs["cpu-used"] = 2
+			outputKwargs["row-mt"] = 1
+			outputKwargs["tile-columns"] = 2
+			outputKwargs["frame-parallel"] = 1
+			outputKwargs["auto-alt-ref"] = 1
+			outputKwargs["lag-in-frames"] = 25
+		}
+
+		err = stream.Output(outputPath, outputKwargs).
+			OverWriteOutput().
+			ErrorToStdOut().
+			Run()
+
+		if err != nil {
+			return fmt.Errorf("failed to process video: %v", err)
+		}
+
+		return nil
 	}
 
+	// If not forcing portrait or already portrait, use existing processing logic
+	return p.processNormalVideo(inputPath, outputPath, plat, startTime, duration, metadata, probe)
+}
+
+func (p *Processor) processNormalVideo(inputPath, outputPath string, plat platform.Platform, startTime float64, duration int, metadata *VideoMetadata, probe string) error {
 	// Get input bitrate
 	inputBitrate, err := p.getBitrate(metadata, probe)
 	if err != nil && p.verbose {
@@ -455,102 +560,6 @@ func (p *Processor) CreateOverlayFilter(main, overlay *ffmpeg.Stream, x, y strin
 	})
 }
 
-func (p *Processor) ProcessDefaultChunk(inputPath, outputPath string, startTime float64, duration int, currentCRF int, outputFormat string) error {
-	if p.verbose {
-		log.Printf("Processing chunk with %s settings: %s -> %s\n", outputFormat, inputPath, outputPath)
-	}
-
-	metadata, err := p.GetVideoMetadata(inputPath)
-	if err != nil {
-		return fmt.Errorf("failed to get video metadata: %v", err)
-	}
-
-	// Calculate optimal dimensions while maintaining aspect ratio
-	targetDims := p.calculateOptimalDimensions(metadata.Width, metadata.Height,
-		VideoDimensions{Width: 1920, Height: 1080})
-
-	// Calculate optimal bitrate based on resolution
-	pixelsPerFrame := float64(targetDims.Width * targetDims.Height)
-	bitsPerSecond := pixelsPerFrame * 50 / 1000000 // Convert to Mbps
-	targetBitrate := fmt.Sprintf("%.1fM", bitsPerSecond)
-
-	if p.verbose {
-		log.Printf("Input dimensions: %dx%d\n", metadata.Width, metadata.Height)
-		log.Printf("Output dimensions: %dx%d\n", targetDims.Width, targetDims.Height)
-		log.Printf("Target bitrate: %s\n", targetBitrate)
-	}
-
-	// Create input with starting time
-	inputOptions := ffmpeg.KwArgs{
-		"ss": startTime,
-	}
-	if duration > 0 {
-		inputOptions["t"] = duration
-	}
-
-	// Create the stream with filters
-	stream := ffmpeg.Input(inputPath, inputOptions)
-
-	// Build filter string for scaling
-	filterComplex := fmt.Sprintf("scale=%d:%d", targetDims.Width, targetDims.Height)
-
-	// Get codec settings
-	codecSettings := GetCodecSettings(outputFormat)
-
-	// Base output settings
-	outputKwargs := ffmpeg.KwArgs{
-		"c:v":        codecSettings.VideoCodec,
-		"c:a":        codecSettings.AudioCodec,
-		"b:v":        targetBitrate,
-		"crf":        currentCRF,
-		"pix_fmt":    "yuv420p",
-		"threads":    GetOptimalThreadCount(),
-		"g":          240,
-		"keyint_min": 120,
-		// Apply the filter using vf
-		"vf": filterComplex,
-	}
-
-	encoderSettings := codecSettings.EncoderPresets["high_quality"]
-
-	// Merge encoder settings into output kwargs
-	for k, v := range encoderSettings {
-		outputKwargs[k] = v
-	}
-
-	if p.verbose {
-		log.Printf("Using codec: %s\n", codecSettings.VideoCodec)
-		log.Printf("Using CRF value: %d\n", currentCRF)
-	}
-
-	// Ensure correct extension
-	outputPath = EnsureExtension(outputPath, codecSettings.FileExtension)
-
-	// Run the FFmpeg command
-	err = stream.Output(outputPath, outputKwargs).
-		OverWriteOutput().
-		ErrorToStdOut().
-		Run()
-
-	if err != nil {
-		return fmt.Errorf("failed to process chunk: %v", err)
-	}
-
-	// Verify the output file size
-	fileInfo, err := os.Stat(outputPath)
-	if err != nil {
-		return fmt.Errorf("failed to get output file info: %v", err)
-	}
-
-	if p.verbose {
-		log.Printf("Processed chunk size: %d bytes\n", fileInfo.Size())
-		log.Printf("Compression ratio: %.2f:1\n",
-			float64(metadata.Width*metadata.Height)/(float64(targetDims.Width*targetDims.Height)))
-	}
-
-	return nil
-}
-
 // Helper function to ensure correct file extension
 func EnsureExtension(filename, extension string) string {
 	// Remove any existing video extension
@@ -562,42 +571,6 @@ func EnsureExtension(filename, extension string) string {
 }
 
 // Helper method to retry processing with adjusted quality
-func (p *Processor) ProcessChunkWithRetry(inputPath, outputPath string, startTime float64, duration int, targetSize int64, outputFormat string) error {
-	currentCRF := 23 // Start with a moderate quality setting
-	maxAttempts := 3
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		err := p.ProcessDefaultChunk(inputPath, outputPath, startTime, duration, currentCRF, outputFormat)
-		if err != nil {
-			return err
-		}
-
-		fileInfo, err := os.Stat(outputPath)
-		if err != nil {
-			return fmt.Errorf("failed to get file info: %v", err)
-		}
-
-		if fileInfo.Size() <= targetSize {
-			return nil
-		}
-
-		if attempt < maxAttempts {
-			if p.verbose {
-				log.Printf("Chunk size %d exceeds target %d, retrying with higher CRF\n",
-					fileInfo.Size(), targetSize)
-			}
-
-			// Increase CRF by 5 for next attempt
-			currentCRF += 5
-			if currentCRF > 51 {
-				currentCRF = 51 // Maximum CRF value for VP9
-			}
-		}
-	}
-
-	return fmt.Errorf("failed to achieve target size after %d attempts", maxAttempts)
-}
-
 func (p *Processor) getBitrate(metadata *VideoMetadata, probe string) (int64, error) {
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(probe), &data); err != nil {

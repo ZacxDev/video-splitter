@@ -41,3 +41,7 @@ func (p *Twitter) GetAudioBitrate() string {
 func (p *Twitter) GetOutputFormat() string {
 	return "mp4"
 }
+
+func (p *Twitter) ForcePortrait() bool {
+	return false
+}

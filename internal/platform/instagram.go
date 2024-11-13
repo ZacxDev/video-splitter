@@ -41,3 +41,7 @@ func (p *Instagram) GetAudioBitrate() string {
 func (p *Instagram) GetOutputFormat() string {
 	return "mp4"
 }
+
+func (p *Instagram) ForcePortrait() bool {
+	return true
+}

@@ -30,6 +30,9 @@ type Platform interface {
 
 	// GetOutputFormat returns the preferred output format (e.g., "mp4", "webm")
 	GetOutputFormat() string
+
+	// ForcePortrait returns whether videos should be forced into portrait orientation
+	ForcePortrait() bool
 }
 
 var platforms = make(map[string]Platform)

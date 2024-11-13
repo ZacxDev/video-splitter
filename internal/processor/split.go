@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -90,15 +91,7 @@ func (s *Splitter) Process() error {
 		if s.platform != nil {
 			err = s.ffmpeg.ProcessForPlatform(s.opts.InputPath, outputPath, s.platform, startTime, s.opts.ChunkDuration)
 		} else {
-			initialCRF := 23 // Default starting CRF
-			err = s.ffmpeg.ProcessDefaultChunk(
-				s.opts.InputPath,
-				outputPath,
-				startTime,
-				s.opts.ChunkDuration,
-				initialCRF,
-				outputFormat,
-			)
+			return errors.New("platform is nil")
 		}
 
 		if err != nil {

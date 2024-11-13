@@ -41,3 +41,7 @@ func (p *Reddit) GetAudioBitrate() string {
 func (p *Reddit) GetOutputFormat() string {
 	return "mp4"
 }
+
+func (p *Reddit) ForcePortrait() bool {
+	return false
+}

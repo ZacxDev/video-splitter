@@ -41,3 +41,7 @@ func (p *TikTok) GetAudioBitrate() string {
 func (p *TikTok) GetOutputFormat() string {
 	return "mp4"
 }
+
+func (p *TikTok) ForcePortrait() bool {
+	return true
+}
