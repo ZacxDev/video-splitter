@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZacxDev/video-splitter/internal/config"
+	"github.com/ZacxDev/video-splitter/config"
 	"github.com/ZacxDev/video-splitter/internal/ffmpeg"
 	"github.com/ZacxDev/video-splitter/internal/platform"
 )

@@ -1,7 +1,7 @@
 package videoprocessor
 
 import (
-	"github.com/ZacxDev/video-splitter/internal/config"
+	"github.com/ZacxDev/video-splitter/config"
 	"github.com/ZacxDev/video-splitter/internal/processor"
 )
 

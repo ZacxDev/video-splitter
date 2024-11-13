@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ZacxDev/video-splitter/internal/config"
+	"github.com/ZacxDev/video-splitter/config"
 	"github.com/ZacxDev/video-splitter/pkg/videoprocessor"
 	"github.com/spf13/cobra"
 )

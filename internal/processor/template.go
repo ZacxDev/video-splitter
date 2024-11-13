@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ZacxDev/video-splitter/internal/config"
+	"github.com/ZacxDev/video-splitter/config"
 	ffmpegWrap "github.com/ZacxDev/video-splitter/internal/ffmpeg"
 	"github.com/pkg/errors"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
