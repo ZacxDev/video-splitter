@@ -15,7 +15,7 @@ func (p *Reddit) GetMaxDimensions() (width, height int) {
 }
 
 func (p *Reddit) GetMaxDuration() int {
-	return 900 // 15 minutes
+	return 300 // 5 minutes
 }
 
 func (p *Reddit) GetMaxFileSize() int64 {
