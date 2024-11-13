@@ -66,6 +66,9 @@ func init() {
 	templateCmd.Flags().BoolP("verbose", "v", false, "Enable verbose logging")
 	templateCmd.Flags().Bool("obscurify", false, "Apply obscurify effects to input videos")
 	templateCmd.Flags().String("bottom-right-text", "", "Add text overlay to bottom right of video")
+	templateCmd.Flags().StringP("target-platform", "t", "",
+		fmt.Sprintf("Target platform for optimization (%s)",
+			strings.Join(videoprocessor.GetSupportedPlatforms(), ", ")))
 
 	templateCmd.MarkFlagRequired("output")
 	templateCmd.MarkFlagRequired("video-template")
@@ -106,6 +109,7 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 	opts.Verbose, _ = cmd.Flags().GetBool("verbose")
 	opts.Obscurify, _ = cmd.Flags().GetBool("obscurify")
 	opts.BottomRightText, _ = cmd.Flags().GetString("bottom-right-text")
+	opts.TargetPlatform, _ = cmd.Flags().GetString("target-platform")
 
 	return videoprocessor.ApplyTemplate(opts)
 }

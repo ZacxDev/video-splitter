@@ -31,15 +31,17 @@ func NewSplitter(opts *config.VideoSplitterOptions) *Splitter {
 
 // Templater handles video template operations
 type Templater struct {
-	opts   *config.VideoTemplateOptions
-	ffmpeg *ffmpeg.Processor
+	opts     *config.VideoTemplateOptions
+	ffmpeg   *ffmpeg.Processor
+	platform platform.Platform
 }
 
 // NewTemplater creates a new video templater
-func NewTemplater(opts *config.VideoTemplateOptions) *Templater {
+func NewTemplater(opts *config.VideoTemplateOptions, platform platform.Platform) *Templater {
 	return &Templater{
-		opts:   opts,
-		ffmpeg: ffmpeg.NewProcessor(opts.Verbose),
+		opts:     opts,
+		ffmpeg:   ffmpeg.NewProcessor(opts.Verbose),
+		platform: platform,
 	}
 }
 

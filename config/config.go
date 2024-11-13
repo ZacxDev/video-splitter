@@ -20,6 +20,7 @@ type VideoTemplateOptions struct {
 	Verbose         bool
 	Obscurify       bool
 	BottomRightText string
+	TargetPlatform  string
 }
 
 type VideoDimensions struct {

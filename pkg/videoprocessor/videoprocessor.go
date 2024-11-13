@@ -2,6 +2,7 @@ package videoprocessor
 
 import (
 	"github.com/ZacxDev/video-splitter/config"
+	"github.com/ZacxDev/video-splitter/internal/platform"
 	"github.com/ZacxDev/video-splitter/internal/processor"
 )
 
@@ -12,7 +13,12 @@ func SplitVideo(opts *config.VideoSplitterOptions) error {
 
 // ApplyTemplate applies a video template to multiple input videos
 func ApplyTemplate(opts *config.VideoTemplateOptions) error {
-	return processor.NewTemplater(opts).Process()
+	plat, err := platform.Get(opts.TargetPlatform)
+	if err != nil {
+		return err
+	}
+
+	return processor.NewTemplater(opts, plat).Process()
 }
 
 // GetSupportedPlatforms returns a list of supported social media platforms

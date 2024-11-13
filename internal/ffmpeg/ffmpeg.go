@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ZacxDev/video-splitter/config"
 	"github.com/ZacxDev/video-splitter/internal/platform"
 	"github.com/pkg/errors"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
@@ -640,4 +641,117 @@ func (p *Processor) getBitrate(metadata *VideoMetadata, probe string) (int64, er
 	}
 
 	return 0, fmt.Errorf("could not determine bitrate")
+}
+
+func (p *Processor) OptimizeVideo(inputPath, outputPath string, targetDims config.VideoDimensions, targetSize int64, plat platform.Platform, outputFormat string) error {
+	metadata, err := p.GetVideoMetadata(inputPath)
+	if err != nil {
+		return errors.Wrap(err, "failed to get video metadata")
+	}
+
+	maxWidth, maxHeight := plat.GetMaxDimensions()
+
+	// First, determine if we need to rotate dimensions based on orientation
+	srcIsPortrait := metadata.Height > metadata.Width
+	targetIsPortrait := maxHeight > maxWidth
+
+	if srcIsPortrait != targetIsPortrait {
+		maxWidth, maxHeight = maxHeight, maxWidth
+	}
+
+	// Calculate scale dimensions while maintaining aspect ratio
+	srcAspect := float64(metadata.Width) / float64(metadata.Height)
+	targetAspect := float64(maxWidth) / float64(maxHeight)
+
+	var scaleWidth, scaleHeight int
+	if srcAspect > targetAspect {
+		// Width limited
+		scaleWidth = maxWidth
+		scaleHeight = int(float64(maxWidth) / srcAspect)
+	} else {
+		// Height limited
+		scaleHeight = maxHeight
+		scaleWidth = int(float64(maxHeight) * srcAspect)
+	}
+
+	// Ensure dimensions are even
+	scaleWidth = scaleWidth - (scaleWidth % 2)
+	scaleHeight = scaleHeight - (scaleHeight % 2)
+	// Calculate target bitrate based on size and duration
+
+	platformBitrate := extractBitrateValue(plat.GetVideoBitrate()) * 1000000 // Convert to bps
+	targetBitrate := platformBitrate
+
+	probe, err := ffmpeg.Probe(inputPath)
+	if err != nil {
+		return fmt.Errorf("error probing video: %v", err)
+	}
+
+	inputBitrate, err := p.getBitrate(metadata, probe)
+	if err != nil && p.verbose {
+		log.Printf("Warning: Could not determine input bitrate: %v", err)
+	}
+
+	// If we have the input bitrate, use it as a ceiling
+	if inputBitrate > 0 {
+		maxBitrate := int64(float64(inputBitrate) * 1.05)
+		if int64(targetBitrate) > maxBitrate {
+			if p.verbose {
+				log.Printf("Reducing target bitrate from %d to %d bps to match input",
+					targetBitrate, maxBitrate)
+			}
+			targetBitrate = int(maxBitrate)
+		}
+	}
+
+	// Convert targetBitrate to ffmpeg format
+	var bitrateStr string
+	if targetBitrate >= 1000000 {
+		bitrateStr = fmt.Sprintf("%dM", targetBitrate/1000000)
+	} else {
+		bitrateStr = fmt.Sprintf("%dk", targetBitrate/1000)
+	}
+
+	// Build filter string
+	var filterComplex string
+	if scaleWidth == maxWidth && scaleHeight == maxHeight {
+		// No padding needed if dimensions match exactly
+		filterComplex = fmt.Sprintf("scale=%d:%d", scaleWidth, scaleHeight)
+	} else {
+		filterComplex = fmt.Sprintf(
+			"scale=%d:%d,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black",
+			scaleWidth, scaleHeight,
+			maxWidth, maxHeight,
+		)
+	}
+
+	codecSettings := GetCodecSettings(outputFormat)
+	outputKwargs := ffmpeg.KwArgs{
+		"c:v":            codecSettings.VideoCodec,
+		"c:a":            codecSettings.AudioCodec,
+		"b:v":            bitrateStr,
+		"pix_fmt":        "yuv420p",
+		"filter_complex": filterComplex,
+		"threads":        GetOptimalThreadCount(),
+		"movflags":       "+faststart",
+		"g":              60,
+		"keyint_min":     30,
+	}
+
+	// Apply format-specific encoder settings
+	for k, v := range codecSettings.EncoderPresets["balanced"] {
+		outputKwargs[k] = v
+	}
+
+	stream := ffmpeg.Input(inputPath)
+	err = stream.Output(outputPath, outputKwargs).
+		OverWriteOutput().
+		ErrorToStdOut().
+		Run()
+
+	if err != nil {
+		return errors.Wrap(err, "failed to optimize video")
+	}
+
+	return nil
 }
