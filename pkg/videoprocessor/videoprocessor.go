@@ -4,6 +4,7 @@ import (
 	"github.com/ZacxDev/video-splitter/config"
 	"github.com/ZacxDev/video-splitter/internal/platform"
 	"github.com/ZacxDev/video-splitter/internal/processor"
+	"github.com/ZacxDev/video-splitter/pkg/types"
 )
 
 // SplitVideo splits a video into chunks according to the provided options
@@ -22,6 +23,6 @@ func ApplyTemplate(opts *config.VideoTemplateOptions) error {
 }
 
 // GetSupportedPlatforms returns a list of supported social media platforms
-func GetSupportedPlatforms() []string {
+func GetSupportedPlatforms() []types.ProcessingPlatform {
 	return processor.GetSupportedPlatforms()
 }

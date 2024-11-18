@@ -1,13 +1,15 @@
 package platform
 
+import "github.com/ZacxDev/video-splitter/pkg/types"
+
 type TikTok struct{}
 
 func init() {
 	Register(&TikTok{})
 }
 
-func (p *TikTok) GetName() string {
-	return "tiktok"
+func (p *TikTok) GetName() types.ProcessingPlatform {
+	return types.ProcessingPlatformInstagramReel // instagram and tiktok use the same format
 }
 
 func (p *TikTok) GetMaxDimensions() (width, height int) {

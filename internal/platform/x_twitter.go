@@ -1,13 +1,15 @@
 package platform
 
+import "github.com/ZacxDev/video-splitter/pkg/types"
+
 type Twitter struct{}
 
 func init() {
 	Register(&Twitter{})
 }
 
-func (p *Twitter) GetName() string {
-	return "x-twitter"
+func (p *Twitter) GetName() types.ProcessingPlatform {
+	return types.ProcessingPlatformXTwitter
 }
 
 func (p *Twitter) GetMaxDimensions() (width, height int) {

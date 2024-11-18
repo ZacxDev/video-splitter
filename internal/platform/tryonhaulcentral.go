@@ -1,13 +1,15 @@
 package platform
 
+import "github.com/ZacxDev/video-splitter/pkg/types"
+
 type Tryonhaulcentral struct{}
 
 func init() {
 	Register(&Tryonhaulcentral{})
 }
 
-func (p *Tryonhaulcentral) GetName() string {
-	return "tryonhaulcentral"
+func (p *Tryonhaulcentral) GetName() types.ProcessingPlatform {
+	return types.ProcessingPlatformTryonhaulcentral
 }
 
 func (p *Tryonhaulcentral) GetMaxDimensions() (width, height int) {

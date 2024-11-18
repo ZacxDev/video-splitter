@@ -1,12 +1,14 @@
 package config
 
+import "github.com/ZacxDev/video-splitter/pkg/types"
+
 // VideoSplitterOptions defines options for splitting videos
 type VideoSplitterOptions struct {
 	InputPath      string
 	OutputDir      string
 	ChunkDuration  int
 	Skip           string
-	TargetPlatform string
+	TargetPlatform types.ProcessingPlatform
 	OutputFormat   string // "mp4" or "webm"
 	Verbose        bool
 }
@@ -20,7 +22,7 @@ type VideoTemplateOptions struct {
 	Verbose         bool
 	Obscurify       bool
 	BottomRightText string
-	TargetPlatform  string
+	TargetPlatform  types.ProcessingPlatform
 }
 
 type VideoDimensions struct {

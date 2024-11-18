@@ -1,11 +1,15 @@
 package platform
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/ZacxDev/video-splitter/pkg/types"
+)
 
 // Platform defines the interface for platform-specific video processing
 type Platform interface {
 	// GetName returns the platform name
-	GetName() string
+	GetName() types.ProcessingPlatform
 
 	// GetMaxDimensions returns the maximum allowed video dimensions
 	GetMaxDimensions() (width, height int)
@@ -35,7 +39,7 @@ type Platform interface {
 	ForcePortrait() bool
 }
 
-var platforms = make(map[string]Platform)
+var platforms = make(map[types.ProcessingPlatform]Platform)
 
 // Register adds a platform to the registry
 func Register(p Platform) {
@@ -43,7 +47,7 @@ func Register(p Platform) {
 }
 
 // Get returns a platform by name
-func Get(name string) (Platform, error) {
+func Get(name types.ProcessingPlatform) (Platform, error) {
 	p, ok := platforms[name]
 	if !ok {
 		return nil, fmt.Errorf("unsupported platform: %s", name)
@@ -52,8 +56,8 @@ func Get(name string) (Platform, error) {
 }
 
 // GetSupportedPlatforms returns a list of supported platform names
-func GetSupportedPlatforms() []string {
-	names := make([]string, 0, len(platforms))
+func GetSupportedPlatforms() []types.ProcessingPlatform {
+	names := make([]types.ProcessingPlatform, 0, len(platforms))
 	for name := range platforms {
 		names = append(names, name)
 	}

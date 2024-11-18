@@ -12,6 +12,7 @@ import (
 	"github.com/ZacxDev/video-splitter/config"
 	"github.com/ZacxDev/video-splitter/internal/ffmpeg"
 	"github.com/ZacxDev/video-splitter/internal/platform"
+	"github.com/ZacxDev/video-splitter/pkg/types"
 )
 
 // Splitter handles video splitting operations
@@ -46,7 +47,7 @@ func NewTemplater(opts *config.VideoTemplateOptions, platform platform.Platform)
 }
 
 // GetSupportedPlatforms returns a list of supported platforms
-func GetSupportedPlatforms() []string {
+func GetSupportedPlatforms() []types.ProcessingPlatform {
 	return platform.GetSupportedPlatforms()
 }
 

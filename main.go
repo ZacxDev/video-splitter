@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ZacxDev/video-splitter/config"
+	"github.com/ZacxDev/video-splitter/pkg/types"
 	"github.com/ZacxDev/video-splitter/pkg/videoprocessor"
 	"github.com/spf13/cobra"
 )
@@ -50,9 +51,14 @@ func init() {
 	splitCmd.Flags().StringP("output", "o", "", "Output directory")
 	splitCmd.Flags().IntP("duration", "d", 15, "Duration of each chunk in seconds")
 	splitCmd.Flags().StringP("skip", "s", "", "Duration to skip from start (e.g., '1s', '10s', '1m')")
+	var plats []string
+	for _, o := range videoprocessor.GetSupportedPlatforms() {
+		plats = append(plats, string(o))
+	}
+
 	splitCmd.Flags().StringP("target-platform", "t", "",
 		fmt.Sprintf("Target platform for optimization (%s)",
-			strings.Join(videoprocessor.GetSupportedPlatforms(), ", ")))
+			strings.Join(plats, ", ")))
 	splitCmd.Flags().StringP("format", "f", "webm", "Output format (webm or mp4)")
 	splitCmd.Flags().BoolP("verbose", "v", false, "Enable verbose logging")
 
@@ -68,7 +74,7 @@ func init() {
 	templateCmd.Flags().String("bottom-right-text", "", "Add text overlay to bottom right of video")
 	templateCmd.Flags().StringP("target-platform", "t", "",
 		fmt.Sprintf("Target platform for optimization (%s)",
-			strings.Join(videoprocessor.GetSupportedPlatforms(), ", ")))
+			strings.Join(plats, ", ")))
 
 	templateCmd.MarkFlagRequired("output")
 	templateCmd.MarkFlagRequired("video-template")
@@ -92,7 +98,10 @@ func runSplit(cmd *cobra.Command, args []string) error {
 	opts.OutputDir, _ = cmd.Flags().GetString("output")
 	opts.ChunkDuration, _ = cmd.Flags().GetInt("duration")
 	opts.Skip, _ = cmd.Flags().GetString("skip")
-	opts.TargetPlatform, _ = cmd.Flags().GetString("target-platform")
+
+	targetPlat, _ := cmd.Flags().GetString("target-platform")
+	opts.TargetPlatform = types.ProcessingPlatform(targetPlat)
+
 	opts.OutputFormat, _ = cmd.Flags().GetString("format")
 	opts.Verbose, _ = cmd.Flags().GetBool("verbose")
 
@@ -109,7 +118,8 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 	opts.Verbose, _ = cmd.Flags().GetBool("verbose")
 	opts.Obscurify, _ = cmd.Flags().GetBool("obscurify")
 	opts.BottomRightText, _ = cmd.Flags().GetString("bottom-right-text")
-	opts.TargetPlatform, _ = cmd.Flags().GetString("target-platform")
+	tarPlat, _ := cmd.Flags().GetString("target-platform")
+	opts.TargetPlatform = types.ProcessingPlatform(tarPlat)
 
 	return videoprocessor.ApplyTemplate(opts)
 }

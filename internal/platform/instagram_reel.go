@@ -1,13 +1,15 @@
 package platform
 
+import "github.com/ZacxDev/video-splitter/pkg/types"
+
 type Instagram struct{}
 
 func init() {
 	Register(&Instagram{})
 }
 
-func (p *Instagram) GetName() string {
-	return "instagram-reel"
+func (p *Instagram) GetName() types.ProcessingPlatform {
+	return types.ProcessingPlatformInstagramReel
 }
 
 func (p *Instagram) GetMaxDimensions() (width, height int) {

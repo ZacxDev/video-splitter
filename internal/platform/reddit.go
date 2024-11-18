@@ -1,13 +1,15 @@
 package platform
 
+import "github.com/ZacxDev/video-splitter/pkg/types"
+
 type Reddit struct{}
 
 func init() {
 	Register(&Reddit{})
 }
 
-func (p *Reddit) GetName() string {
-	return "reddit"
+func (p *Reddit) GetName() types.ProcessingPlatform {
+	return types.ProcessingPlatformReddit
 }
 
 func (p *Reddit) GetMaxDimensions() (width, height int) {
