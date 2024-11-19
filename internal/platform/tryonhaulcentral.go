@@ -13,7 +13,7 @@ func (p *Tryonhaulcentral) GetName() types.ProcessingPlatform {
 }
 
 func (p *Tryonhaulcentral) GetMaxDimensions() (width, height int) {
-	return 1920, 1080
+	return 1080, 1920
 }
 
 func (p *Tryonhaulcentral) GetMaxDuration() int {
