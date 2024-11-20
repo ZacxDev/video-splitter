@@ -103,7 +103,7 @@ func NewProcessor(verbose bool) *Processor {
 }
 
 // GetVideoMetadata retrieves metadata about a video file
-func (p *Processor) GetVideoMetadata(inputPath string) (*VideoMetadata, error) {
+func GetVideoMetadata(inputPath string) (*VideoMetadata, error) {
 	probe, err := ffmpeg.Probe(inputPath)
 	if err != nil {
 		return nil, fmt.Errorf("error probing video: %v", err)
@@ -190,7 +190,7 @@ func (p *Processor) GetVideoMetadata(inputPath string) (*VideoMetadata, error) {
 }
 
 func (p *Processor) ProcessForPlatform(inputPath, outputPath string, plat platform.Platform, startTime float64, duration int) error {
-	metadata, err := p.GetVideoMetadata(inputPath)
+	metadata, err := GetVideoMetadata(inputPath)
 	if err != nil {
 		return fmt.Errorf("error probing video: %v", err)
 	}
@@ -201,112 +201,13 @@ func (p *Processor) ProcessForPlatform(inputPath, outputPath string, plat platfo
 		return fmt.Errorf("error probing video: %v", err)
 	}
 
-	maxWidth, maxHeight := plat.GetMaxDimensions()
-
-	// Handle forced portrait mode
-	if plat.ForcePortrait() && metadata.Width > metadata.Height {
-		// For landscape videos that need to be portrait, we'll center crop
-		cropWidth := (metadata.Height * 9) / 16 // Assuming 9:16 aspect ratio for portrait
-		cropX := (metadata.Width - cropWidth) / 2
-
-		// Build the filter chain - crop first, then scale
-		filterComplex := fmt.Sprintf(
-			"crop=%d:%d:%d:0,scale=%d:%d",
-			cropWidth, metadata.Height, // crop dimensions
-			cropX,               // crop position
-			maxWidth, maxHeight, // final dimensions
-		)
-
-		if p.verbose {
-			log.Printf("Forcing portrait mode. Cropping %dx%d from center of %dx%d video\n",
-				cropWidth, metadata.Height, metadata.Width, metadata.Height)
-		}
-
-		inputBitrate, err := p.getBitrate(metadata, probe)
-		if err != nil && p.verbose {
-			log.Printf("Warning: Could not determine input bitrate: %v", err)
-		}
-
-		// Determine platform bitrate
-		platformBitrate := extractBitrateValue(plat.GetVideoBitrate()) * 1000000 // Convert to bps
-		targetBitrate := platformBitrate
-
-		// If we have the input bitrate, use it as a ceiling
-		if inputBitrate > 0 {
-			maxBitrate := int64(float64(inputBitrate) * 1.05)
-			if int64(targetBitrate) > maxBitrate {
-				if p.verbose {
-					log.Printf("Reducing target bitrate from %d to %d bps to match input",
-						targetBitrate, maxBitrate)
-				}
-				targetBitrate = int(maxBitrate)
-			}
-		}
-
-		// Convert targetBitrate to ffmpeg format
-		bitrateStr := fmt.Sprintf("%dM", targetBitrate/1000000)
-
-		inputKwargs := ffmpeg.KwArgs{
-			"ss": startTime,
-		}
-		if duration > 0 {
-			inputKwargs["t"] = duration
-		}
-
-		stream := ffmpeg.Input(inputPath, inputKwargs)
-
-		outputKwargs := ffmpeg.KwArgs{
-			"c:v":            plat.GetVideoCodec(),
-			"c:a":            plat.GetAudioCodec(),
-			"b:v":            bitrateStr,
-			"b:a":            plat.GetAudioBitrate(),
-			"filter_complex": filterComplex,
-			"pix_fmt":        "yuv420p",
-			"threads":        GetOptimalThreadCount(),
-			"movflags":       "+faststart",
-			"g":              60,
-			"keyint_min":     30,
-		}
-
-		// Add codec-specific settings
-		switch plat.GetVideoCodec() {
-		case "libx264":
-			outputKwargs["profile:v"] = "high"
-			outputKwargs["level"] = "4.0"
-			outputKwargs["preset"] = "slower"
-			outputKwargs["x264opts"] = "no-scenecut"
-			outputKwargs["maxrate"] = bitrateStr
-			outputKwargs["bufsize"] = fmt.Sprintf("%dM", 2*targetBitrate/1000000)
-
-		case "libvpx-vp9":
-			outputKwargs["deadline"] = "good"
-			outputKwargs["cpu-used"] = 2
-			outputKwargs["row-mt"] = 1
-			outputKwargs["tile-columns"] = 2
-			outputKwargs["frame-parallel"] = 1
-			outputKwargs["auto-alt-ref"] = 1
-			outputKwargs["lag-in-frames"] = 25
-		}
-
-		err = stream.Output(outputPath, outputKwargs).
-			OverWriteOutput().
-			ErrorToStdOut().
-			Run()
-
-		if err != nil {
-			return fmt.Errorf("failed to process video: %v", err)
-		}
-
-		return nil
-	}
-
 	// If not forcing portrait or already portrait, use existing processing logic
 	return p.processNormalVideo(inputPath, outputPath, plat, startTime, duration, metadata, probe)
 }
 
 func (p *Processor) processNormalVideo(inputPath, outputPath string, plat platform.Platform, startTime float64, duration int, metadata *VideoMetadata, probe string) error {
 	// Get input bitrate
-	inputBitrate, err := p.getBitrate(metadata, probe)
+	inputBitrate, err := getBitrate(metadata, probe)
 	if err != nil && p.verbose {
 		log.Printf("Warning: Could not determine input bitrate: %v", err)
 	}
@@ -571,7 +472,7 @@ func EnsureExtension(filename, extension string) string {
 }
 
 // Helper method to retry processing with adjusted quality
-func (p *Processor) getBitrate(metadata *VideoMetadata, probe string) (int64, error) {
+func getBitrate(metadata *VideoMetadata, probe string) (int64, error) {
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(probe), &data); err != nil {
 		return 0, errors.WithStack(err)
@@ -616,8 +517,15 @@ func (p *Processor) getBitrate(metadata *VideoMetadata, probe string) (int64, er
 	return 0, fmt.Errorf("could not determine bitrate")
 }
 
-func (p *Processor) OptimizeVideo(inputPath, outputPath string, targetDims config.VideoDimensions, targetSize int64, plat platform.Platform, outputFormat string) error {
-	metadata, err := p.GetVideoMetadata(inputPath)
+func (p *Processor) OptimizeVideo(
+	inputPath,
+	outputPath string,
+	targetDims config.VideoDimensions,
+	targetSize int64,
+	plat platform.Platform,
+	outputFormat string,
+) error {
+	metadata, err := GetVideoMetadata(inputPath)
 	if err != nil {
 		return errors.Wrap(err, "failed to get video metadata")
 	}
@@ -660,7 +568,7 @@ func (p *Processor) OptimizeVideo(inputPath, outputPath string, targetDims confi
 		return fmt.Errorf("error probing video: %v", err)
 	}
 
-	inputBitrate, err := p.getBitrate(metadata, probe)
+	inputBitrate, err := getBitrate(metadata, probe)
 	if err != nil && p.verbose {
 		log.Printf("Warning: Could not determine input bitrate: %v", err)
 	}
@@ -724,6 +632,113 @@ func (p *Processor) OptimizeVideo(inputPath, outputPath string, targetDims confi
 
 	if err != nil {
 		return errors.Wrap(err, "failed to optimize video")
+	}
+
+	return nil
+}
+
+func ApplyPlatformCrop(
+	inputPath,
+	outputPath string,
+	plat platform.Platform,
+	startTime float64,
+	duration int,
+	metadata *VideoMetadata,
+	maxWidth int,
+	maxHeight int,
+	probe string,
+	verbose bool,
+) error {
+	// For landscape videos that need to be portrait, we'll center crop
+	cropWidth := (metadata.Height * 9) / 16 // Assuming 9:16 aspect ratio for portrait
+	cropX := (metadata.Width - cropWidth) / 2
+
+	// Build the filter chain - crop first, then scale
+	filterComplex := fmt.Sprintf(
+		"crop=%d:%d:%d:0,scale=%d:%d",
+		cropWidth, metadata.Height, // crop dimensions
+		cropX,               // crop position
+		maxWidth, maxHeight, // final dimensions
+	)
+
+	if verbose {
+		log.Printf("Forcing portrait mode. Cropping %dx%d from center of %dx%d video\n",
+			cropWidth, metadata.Height, metadata.Width, metadata.Height)
+	}
+
+	inputBitrate, err := getBitrate(metadata, probe)
+	if err != nil && verbose {
+		log.Printf("Warning: Could not determine input bitrate: %v", err)
+	}
+
+	// Determine platform bitrate
+	platformBitrate := extractBitrateValue(plat.GetVideoBitrate()) * 1000000 // Convert to bps
+	targetBitrate := platformBitrate
+
+	// If we have the input bitrate, use it as a ceiling
+	if inputBitrate > 0 {
+		maxBitrate := int64(float64(inputBitrate) * 1.05)
+		if int64(targetBitrate) > maxBitrate {
+			if verbose {
+				log.Printf("Reducing target bitrate from %d to %d bps to match input",
+					targetBitrate, maxBitrate)
+			}
+			targetBitrate = int(maxBitrate)
+		}
+	}
+
+	// Convert targetBitrate to ffmpeg format
+	bitrateStr := fmt.Sprintf("%dM", targetBitrate/1000000)
+
+	inputKwargs := ffmpeg.KwArgs{
+		"ss": startTime,
+	}
+	if duration > 0 {
+		inputKwargs["t"] = duration
+	}
+
+	stream := ffmpeg.Input(inputPath, inputKwargs)
+
+	outputKwargs := ffmpeg.KwArgs{
+		"c:v":            plat.GetVideoCodec(),
+		"c:a":            plat.GetAudioCodec(),
+		"b:v":            bitrateStr,
+		"b:a":            plat.GetAudioBitrate(),
+		"filter_complex": filterComplex,
+		"pix_fmt":        "yuv420p",
+		"threads":        GetOptimalThreadCount(),
+		"movflags":       "+faststart",
+		"g":              60,
+		"keyint_min":     30,
+	}
+
+	// Add codec-specific settings
+	switch plat.GetVideoCodec() {
+	case "libx264":
+		outputKwargs["profile:v"] = "high"
+		outputKwargs["level"] = "4.0"
+		outputKwargs["preset"] = "slower"
+		outputKwargs["x264opts"] = "no-scenecut"
+		outputKwargs["maxrate"] = bitrateStr
+		outputKwargs["bufsize"] = fmt.Sprintf("%dM", 2*targetBitrate/1000000)
+
+	case "libvpx-vp9":
+		outputKwargs["deadline"] = "good"
+		outputKwargs["cpu-used"] = 2
+		outputKwargs["row-mt"] = 1
+		outputKwargs["tile-columns"] = 2
+		outputKwargs["frame-parallel"] = 1
+		outputKwargs["auto-alt-ref"] = 1
+		outputKwargs["lag-in-frames"] = 25
+	}
+
+	err = stream.Output(outputPath, outputKwargs).
+		OverWriteOutput().
+		ErrorToStdOut().
+		Run()
+
+	if err != nil {
+		return fmt.Errorf("failed to process video: %v", err)
 	}
 
 	return nil

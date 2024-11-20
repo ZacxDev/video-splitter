@@ -1,7 +1,6 @@
 package processor
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/ZacxDev/video-splitter/config"
 	ffmpegWrap "github.com/ZacxDev/video-splitter/internal/ffmpeg"
+	"github.com/pkg/errors"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
 
@@ -76,12 +76,49 @@ func (t *Templater) Process() error {
 	// Prepare videos
 	optimizedPaths := make([]string, 0, len(t.opts.InputPaths))
 	for i, inputPath := range t.opts.InputPaths {
-		// First apply obscurify effects if enabled
-		processedPath := inputPath
+		// First apply platform crop
+		plat := t.platform
+		maxWidth, maxHeight := plat.GetMaxDimensions()
+
+		metadata, err := ffmpegWrap.GetVideoMetadata(inputPath)
+		if err != nil {
+			return fmt.Errorf("failed to get video metadata: %v", err)
+		}
+
+		croppedPath := inputPath
+
+		// Handle forced portrait mode
+		if plat.ForcePortrait() && metadata.Width > metadata.Height {
+			croppedPath = filepath.Join(tempDir, fmt.Sprintf("cropped_%d."+t.opts.OutputFormat, i))
+
+			probe, err := ffmpeg.Probe(inputPath)
+			if err != nil {
+				return fmt.Errorf("error probing video: %v", err)
+			}
+
+			err = ffmpegWrap.ApplyPlatformCrop(
+				inputPath,
+				croppedPath,
+				plat,
+				0,
+				0, // set duration to 0 to prevent cuttin
+				metadata,
+				maxWidth,
+				maxHeight,
+				probe,
+				t.opts.Verbose,
+			)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+		}
+
+		// Second, apply obscurify effects if enabled
+		processedPath := croppedPath
 		if t.opts.Obscurify {
 			obscurifiedPath := filepath.Join(tempDir, fmt.Sprintf("obscurified_%d."+t.opts.OutputFormat, i))
-			if err := t.ApplyObscurifyEffects(inputPath, obscurifiedPath); err != nil {
-				return fmt.Errorf("failed to apply obscurify effects to video %s: %v", inputPath, err)
+			if err := t.ApplyObscurifyEffects(croppedPath, obscurifiedPath); err != nil {
+				return fmt.Errorf("failed to apply obscurify effects to video %s: %v", croppedPath, err)
 			}
 			processedPath = obscurifiedPath
 		}
@@ -94,7 +131,7 @@ func (t *Templater) Process() error {
 			outputFormat = "webm"
 		}
 
-		err := t.ffmpeg.OptimizeVideo(
+		err = t.ffmpeg.OptimizeVideo(
 			processedPath,
 			optimizedPath,
 			targetDims,

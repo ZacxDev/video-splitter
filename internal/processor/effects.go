@@ -19,7 +19,7 @@ func (t *Templater) ApplyObscurifyEffects(inputPath, outputPath string) error {
 		return fmt.Errorf("unsupported output format: %s (supported: webm, mp4)", outputFormat)
 	}
 
-	metadata, err := t.ffmpeg.GetVideoMetadata(inputPath)
+	metadata, err := ffmpegWrap.GetVideoMetadata(inputPath)
 	if err != nil {
 		return errors.Wrap(err, "failed to get video metadata")
 	}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	ffmpegWrap "github.com/ZacxDev/video-splitter/internal/ffmpeg"
 	"github.com/ZacxDev/video-splitter/internal/platform"
 )
 
@@ -34,7 +35,7 @@ func (s *Splitter) Process() error {
 		}
 	}
 
-	metadata, err := s.ffmpeg.GetVideoMetadata(s.opts.InputPath)
+	metadata, err := ffmpegWrap.GetVideoMetadata(s.opts.InputPath)
 	if err != nil {
 		return fmt.Errorf("failed to get video metadata: %v", err)
 	}
