@@ -201,7 +201,6 @@ func (p *Processor) ProcessForPlatform(inputPath, outputPath string, plat platfo
 		return fmt.Errorf("error probing video: %v", err)
 	}
 
-	// If not forcing portrait or already portrait, use existing processing logic
 	return p.processNormalVideo(inputPath, outputPath, plat, startTime, duration, metadata, probe)
 }
 
@@ -245,16 +244,19 @@ func (p *Processor) processNormalVideo(inputPath, outputPath string, plat platfo
 	platformBitrate := extractBitrateValue(plat.GetVideoBitrate()) * 1000000 // Convert to bps
 	targetBitrate := platformBitrate
 
-	// If we have the input bitrate, use it as a ceiling
+	// If we have the input bitrate, use it
 	if inputBitrate > 0 {
-		maxBitrate := int64(float64(inputBitrate) * 1.05)
-		if int64(targetBitrate) > maxBitrate {
-			if p.verbose {
-				log.Printf("Reducing target bitrate from %d to %d bps to match input",
-					targetBitrate, maxBitrate)
+		targetBitrate = int(inputBitrate)
+		/*
+			maxBitrate := int64(float64(inputBitrate) * 1.05)
+			if int64(targetBitrate) > maxBitrate {
+				if p.verbose {
+					log.Printf("Reducing target bitrate from %d to %d bps to match input",
+						targetBitrate, maxBitrate)
+				}
+				targetBitrate = int(maxBitrate)
 			}
-			targetBitrate = int(maxBitrate)
-		}
+		*/
 	}
 
 	// Convert targetBitrate to ffmpeg format
@@ -269,13 +271,15 @@ func (p *Processor) processNormalVideo(inputPath, outputPath string, plat platfo
 	var filterComplex string
 	if scaleWidth == maxWidth && scaleHeight == maxHeight {
 		// No padding needed if dimensions match exactly
-		filterComplex = fmt.Sprintf("scale=%d:%d", scaleWidth, scaleHeight)
+		//filterComplex = fmt.Sprintf("scale=%d:%d", scaleWidth, scaleHeight)
 	} else {
-		filterComplex = fmt.Sprintf(
-			"scale=%d:%d,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black",
-			scaleWidth, scaleHeight,
-			maxWidth, maxHeight,
-		)
+		/*
+			filterComplex = fmt.Sprintf(
+				"scale=%d:%d,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black",
+				scaleWidth, scaleHeight,
+				maxWidth, maxHeight,
+			)
+		*/
 	}
 
 	inputKwargs := ffmpeg.KwArgs{
@@ -288,16 +292,19 @@ func (p *Processor) processNormalVideo(inputPath, outputPath string, plat platfo
 	stream := ffmpeg.Input(inputPath, inputKwargs)
 
 	outputKwargs := ffmpeg.KwArgs{
-		"c:v":            plat.GetVideoCodec(),
-		"c:a":            plat.GetAudioCodec(),
-		"b:v":            bitrateStr,
-		"b:a":            plat.GetAudioBitrate(),
-		"filter_complex": filterComplex,
-		"pix_fmt":        "yuv420p",
-		"threads":        GetOptimalThreadCount(),
-		"movflags":       "+faststart",
-		"g":              60,
-		"keyint_min":     30,
+		"c:v":        plat.GetVideoCodec(),
+		"c:a":        plat.GetAudioCodec(),
+		"b:v":        bitrateStr,
+		"b:a":        plat.GetAudioBitrate(),
+		"pix_fmt":    "yuv420p",
+		"threads":    GetOptimalThreadCount(),
+		"movflags":   "+faststart",
+		"g":          60,
+		"keyint_min": 30,
+	}
+
+	if filterComplex != "" {
+		outputKwargs["filter_complex"] = filterComplex
 	}
 
 	// Add codec-specific settings
@@ -575,14 +582,17 @@ func (p *Processor) OptimizeVideo(
 
 	// If we have the input bitrate, use it as a ceiling
 	if inputBitrate > 0 {
-		maxBitrate := int64(float64(inputBitrate) * 1.05)
-		if int64(targetBitrate) > maxBitrate {
-			if p.verbose {
-				log.Printf("Reducing target bitrate from %d to %d bps to match input",
-					targetBitrate, maxBitrate)
+		targetBitrate = int(inputBitrate)
+		/*
+			maxBitrate := int64(float64(inputBitrate) * 1.05)
+			if int64(targetBitrate) > maxBitrate {
+				if p.verbose {
+					log.Printf("Reducing target bitrate from %d to %d bps to match input",
+						targetBitrate, maxBitrate)
+				}
+				targetBitrate = int(maxBitrate)
 			}
-			targetBitrate = int(maxBitrate)
-		}
+		*/
 	}
 
 	// Convert targetBitrate to ffmpeg format
@@ -597,26 +607,31 @@ func (p *Processor) OptimizeVideo(
 	var filterComplex string
 	if scaleWidth == maxWidth && scaleHeight == maxHeight {
 		// No padding needed if dimensions match exactly
-		filterComplex = fmt.Sprintf("scale=%d:%d", scaleWidth, scaleHeight)
+		//filterComplex = fmt.Sprintf("scale=%d:%d", scaleWidth, scaleHeight)
 	} else {
-		filterComplex = fmt.Sprintf(
-			"scale=%d:%d,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black",
-			scaleWidth, scaleHeight,
-			maxWidth, maxHeight,
-		)
+		/*
+			filterComplex = fmt.Sprintf(
+				"scale=%d:%d,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black",
+				scaleWidth, scaleHeight,
+				maxWidth, maxHeight,
+			)
+		*/
 	}
 
 	codecSettings := GetCodecSettings(outputFormat)
 	outputKwargs := ffmpeg.KwArgs{
-		"c:v":            codecSettings.VideoCodec,
-		"c:a":            codecSettings.AudioCodec,
-		"b:v":            bitrateStr,
-		"pix_fmt":        "yuv420p",
-		"filter_complex": filterComplex,
-		"threads":        GetOptimalThreadCount(),
-		"movflags":       "+faststart",
-		"g":              60,
-		"keyint_min":     30,
+		"c:v": codecSettings.VideoCodec,
+		//"c:a":        codecSettings.AudioCodec,
+		"b:v":        bitrateStr,
+		"pix_fmt":    "yuv420p",
+		"threads":    GetOptimalThreadCount(),
+		"movflags":   "+faststart",
+		"g":          60,
+		"keyint_min": 30,
+	}
+
+	if filterComplex != "" {
+		outputKwargs["filter_complex"] = filterComplex
 	}
 
 	// Apply format-specific encoder settings
@@ -654,11 +669,18 @@ func ApplyPlatformCrop(
 	cropX := (metadata.Width - cropWidth) / 2
 
 	// Build the filter chain - crop first, then scale
+	/*
+		filterComplex := fmt.Sprintf(
+			"crop=%d:%d:%d:0,scale=%d:%d",
+			cropWidth, metadata.Height, // crop dimensions
+			cropX,               // crop position
+			maxWidth, maxHeight, // final dimensions
+		)
+	*/
 	filterComplex := fmt.Sprintf(
-		"crop=%d:%d:%d:0,scale=%d:%d",
+		"crop=%d:%d:%d:0",
 		cropWidth, metadata.Height, // crop dimensions
-		cropX,               // crop position
-		maxWidth, maxHeight, // final dimensions
+		cropX, // crop position
 	)
 
 	if verbose {
@@ -677,14 +699,17 @@ func ApplyPlatformCrop(
 
 	// If we have the input bitrate, use it as a ceiling
 	if inputBitrate > 0 {
-		maxBitrate := int64(float64(inputBitrate) * 1.05)
-		if int64(targetBitrate) > maxBitrate {
-			if verbose {
-				log.Printf("Reducing target bitrate from %d to %d bps to match input",
-					targetBitrate, maxBitrate)
+		targetBitrate = int(inputBitrate)
+		/*
+			maxBitrate := int64(float64(inputBitrate) * 1.05)
+			if int64(targetBitrate) > maxBitrate {
+				if verbose {
+					log.Printf("Reducing target bitrate from %d to %d bps to match input",
+						targetBitrate, maxBitrate)
+				}
+				targetBitrate = int(maxBitrate)
 			}
-			targetBitrate = int(maxBitrate)
-		}
+		*/
 	}
 
 	// Convert targetBitrate to ffmpeg format
@@ -700,10 +725,10 @@ func ApplyPlatformCrop(
 	stream := ffmpeg.Input(inputPath, inputKwargs)
 
 	outputKwargs := ffmpeg.KwArgs{
-		"c:v":            plat.GetVideoCodec(),
-		"c:a":            plat.GetAudioCodec(),
-		"b:v":            bitrateStr,
-		"b:a":            plat.GetAudioBitrate(),
+		"c:v": plat.GetVideoCodec(),
+		//"c:a":            plat.GetAudioCodec(),
+		"b:v": bitrateStr,
+		//"b:a":            plat.GetAudioBitrate(),
 		"filter_complex": filterComplex,
 		"pix_fmt":        "yuv420p",
 		"threads":        GetOptimalThreadCount(),

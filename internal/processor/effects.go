@@ -13,7 +13,7 @@ import (
 func (t *Templater) ApplyObscurifyEffects(inputPath, outputPath string) error {
 	outputFormat := strings.ToLower(t.opts.OutputFormat)
 	if outputFormat == "" {
-		outputFormat = "webm"
+		outputFormat = "mp4"
 	}
 	if outputFormat != "webm" && outputFormat != "mp4" {
 		return fmt.Errorf("unsupported output format: %s (supported: webm, mp4)", outputFormat)
@@ -25,7 +25,7 @@ func (t *Templater) ApplyObscurifyEffects(inputPath, outputPath string) error {
 	}
 
 	// Calculate dimensions for zoom effect
-	zoomScale := 1.05
+	zoomScale := 1.025
 	zoomWidth := int(float64(metadata.Width) * zoomScale)
 	zoomHeight := int(float64(metadata.Height) * zoomScale)
 
