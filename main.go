@@ -71,7 +71,8 @@ func init() {
 	templateCmd.Flags().StringP("format", "f", "webm", "Output format (webm or mp4)")
 	templateCmd.Flags().BoolP("verbose", "v", false, "Enable verbose logging")
 	templateCmd.Flags().Bool("obscurify", false, "Apply obscurify effects to input videos")
-	templateCmd.Flags().String("bottom-right-text", "", "Add text overlay to bottom right of video")
+	templateCmd.Flags().String("landscape-bottom-right-text", "", "Add text overlay to bottom right of video if landscape")
+	templateCmd.Flags().String("portrait-bottom-right-text", "", "Add text overlay to bottom right of video if portrait")
 	templateCmd.Flags().StringP("target-platform", "t", "",
 		fmt.Sprintf("Target platform for optimization (%s)",
 			strings.Join(plats, ", ")))
@@ -117,7 +118,12 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 	opts.OutputFormat, _ = cmd.Flags().GetString("format")
 	opts.Verbose, _ = cmd.Flags().GetBool("verbose")
 	opts.Obscurify, _ = cmd.Flags().GetBool("obscurify")
-	opts.BottomRightText, _ = cmd.Flags().GetString("bottom-right-text")
+	opts.LandscapeBottomRightText, _ = cmd.Flags().GetString("landscape-bottom-right-text")
+	opts.PortraitBottomRightText, _ = cmd.Flags().GetString("portrait-bottom-right-text")
+	if opts.PortraitBottomRightText == "" {
+		opts.PortraitBottomRightText = opts.LandscapeBottomRightText
+	}
+
 	tarPlat, _ := cmd.Flags().GetString("target-platform")
 	opts.TargetPlatform = types.ProcessingPlatform(tarPlat)
 

@@ -2,16 +2,17 @@ package processor
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ZacxDev/video-splitter/config"
 	ffmpegWrap "github.com/ZacxDev/video-splitter/internal/ffmpeg"
 	"github.com/pkg/errors"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
+	"golang.org/x/exp/rand"
 )
 
 func (t *Templater) Process() error {
@@ -74,11 +75,12 @@ func (t *Templater) Process() error {
 		return fmt.Errorf("unsupported template type: %s", t.opts.TemplateType)
 	}
 
+	// Get target platform
+	plat := t.platform
 	// Prepare videos
 	optimizedPaths := make([]string, 0, len(t.opts.InputPaths))
 	for i, inputPath := range t.opts.InputPaths {
 		// First apply platform crop
-		plat := t.platform
 		maxWidth, maxHeight := plat.GetMaxDimensions()
 
 		metadata, err := ffmpegWrap.GetVideoMetadata(inputPath)
@@ -193,25 +195,17 @@ func (t *Templater) Process() error {
 		output = process3x1Template(streams)
 	}
 
-	if t.opts.BottomRightText != "" && output != nil {
-		output = t.addBottomRightText(output, t.opts.BottomRightText)
+	if t.opts.LandscapeBottomRightText != "" && output != nil {
+		output = t.addBottomRightText(output, t.opts.LandscapeBottomRightText, t.opts.PortraitBottomRightText, plat.ForcePortrait())
 	}
 
 	if t.opts.Verbose {
 		log.Printf("Creating final output video: %s", t.opts.OutputPath)
 	}
 
-	if len(kwargs) > 0 {
-		err = output.Output(t.opts.OutputPath, kwargs).OverWriteOutput().ErrorToStdOut().Run()
-		if err != nil {
-			return fmt.Errorf("failed to create final video: %v", err)
-		}
-	} else {
-		log.Printf("template: %s has no kwargs, copying optimized video to final path", t.opts.TemplateType)
-		err = copyFile(optimizedPaths[0], t.opts.OutputPath)
-		if err != nil {
-			return errors.WithStack(err)
-		}
+	err = output.Output(t.opts.OutputPath, kwargs).OverWriteOutput().ErrorToStdOut().Run()
+	if err != nil {
+		return fmt.Errorf("failed to create final video: %v", err)
 	}
 
 	finalFileInfo, err := os.Stat(t.opts.OutputPath)
@@ -227,11 +221,43 @@ func (t *Templater) Process() error {
 	return nil
 }
 
-func (t *Templater) addBottomRightText(input *ffmpeg.Stream, text string) *ffmpeg.Stream {
+func getRandomColor() string {
+	rand.Seed(uint64(time.Now().UnixNano()))
+	// Vibrant color palette
+	colors := []string{
+		"yellow", "magenta", "cyan", "lime", "red",
+		"orange", "#00ff00", "#ff00ff", "#00ffff", "#ff3366",
+	}
+	return colors[rand.Intn(len(colors))]
+}
+
+func (t *Templater) addBottomRightText(input *ffmpeg.Stream, landscapeText, portraitText string, isPortrait bool) *ffmpeg.Stream {
+	text := landscapeText
+	fontsize := "28"
+	if isPortrait {
+		fontsize = "24"
+		text = portraitText
+	}
+	col := getRandomColor()
+
 	return input.Filter("drawtext", ffmpeg.Args{
-		fmt.Sprintf("text='%s':fontsize=36:fontcolor=white:bordercolor=black:borderw=2:"+
-			"x=w-tw-20:y=h-th-20:shadowcolor=black:shadowx=2:shadowy=2:box=1:boxcolor=black@0.5:boxborderw=5",
-			text),
+		fmt.Sprintf(
+			"text='%s':"+
+				"fontsize="+fontsize+":"+ // Increased font size
+				"fontcolor=%s:"+ // Random vibrant color
+				"bordercolor=black:"+
+				"borderw=3:"+ // Thicker border
+				"x=w-tw-20:"+
+				"y=h-th-20:"+
+				"shadowcolor=black:"+
+				"shadowx=3:"+ // More pronounced shadow
+				"shadowy=3:"+ // More pronounced shadow
+				"box=1:"+
+				"boxcolor=black@0.6:"+ // Slightly more opaque box
+				"boxborderw=6", // Thicker box border
+			text,
+			col,
+		),
 	})
 }
 
@@ -271,34 +297,4 @@ func process3x1Template(inputs []*ffmpeg.Stream) *ffmpeg.Stream {
 		"hstack",
 		ffmpeg.Args{"inputs=3"},
 	)
-}
-
-func copyFile(src, dst string) error {
-	// Open the source file
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	// Create the destination file
-	destinationFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer destinationFile.Close()
-
-	// Copy the contents of the source file to the destination file
-	_, err = io.Copy(destinationFile, sourceFile)
-	if err != nil {
-		return err
-	}
-
-	// Flush and ensure the contents are written to disk
-	err = destinationFile.Sync()
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

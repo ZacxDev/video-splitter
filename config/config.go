@@ -15,14 +15,15 @@ type VideoSplitterOptions struct {
 
 // VideoTemplateOptions defines options for applying video templates
 type VideoTemplateOptions struct {
-	InputPaths      []string
-	OutputPath      string
-	TemplateType    string
-	OutputFormat    string // "mp4" or "webm"
-	Verbose         bool
-	Obscurify       bool
-	BottomRightText string
-	TargetPlatform  types.ProcessingPlatform
+	InputPaths               []string
+	OutputPath               string
+	TemplateType             string
+	OutputFormat             string // "mp4" or "webm"
+	Verbose                  bool
+	Obscurify                bool
+	LandscapeBottomRightText string
+	PortraitBottomRightText  string
+	TargetPlatform           types.ProcessingPlatform
 }
 
 type VideoDimensions struct {
