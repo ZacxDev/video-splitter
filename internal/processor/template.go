@@ -10,19 +10,20 @@ import (
 
 	"github.com/ZacxDev/video-splitter/config"
 	ffmpegWrap "github.com/ZacxDev/video-splitter/internal/ffmpeg"
+	"github.com/ZacxDev/video-splitter/pkg/types"
 	"github.com/pkg/errors"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 	"golang.org/x/exp/rand"
 )
 
-func (t *Templater) Process() error {
+func (t *Templater) Process() (*types.ProcessedOutput, error) {
 	if len(t.opts.InputPaths) == 0 {
-		return fmt.Errorf("no input videos provided")
+		return nil, fmt.Errorf("no input videos provided")
 	}
 
 	tempDir, err := os.MkdirTemp("", "video_template_")
 	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %v", err)
+		return nil, fmt.Errorf("failed to create temp directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -49,7 +50,7 @@ func (t *Templater) Process() error {
 				len(t.opts.InputPaths)-4)
 			t.opts.InputPaths = t.opts.InputPaths[:4]
 		} else if len(t.opts.InputPaths) < 4 {
-			return fmt.Errorf("2x2 template requires exactly 4 videos, got %d", len(t.opts.InputPaths))
+			return nil, fmt.Errorf("2x2 template requires exactly 4 videos, got %d", len(t.opts.InputPaths))
 		}
 		targetDims = config.VideoDimensions{
 			Width:  config.Template2x2Width,
@@ -63,7 +64,7 @@ func (t *Templater) Process() error {
 				len(t.opts.InputPaths)-3)
 			t.opts.InputPaths = t.opts.InputPaths[:3]
 		} else if len(t.opts.InputPaths) < 3 {
-			return fmt.Errorf("3x1 template requires exactly 3 videos, got %d", len(t.opts.InputPaths))
+			return nil, fmt.Errorf("3x1 template requires exactly 3 videos, got %d", len(t.opts.InputPaths))
 		}
 		targetDims = config.VideoDimensions{
 			Width:  config.Template3x1Width,
@@ -72,7 +73,7 @@ func (t *Templater) Process() error {
 		targetSize = config.Template3x1MaxSize
 
 	default:
-		return fmt.Errorf("unsupported template type: %s", t.opts.TemplateType)
+		return nil, fmt.Errorf("unsupported template type: %s", t.opts.TemplateType)
 	}
 
 	// Get target platform
@@ -85,7 +86,7 @@ func (t *Templater) Process() error {
 
 		metadata, err := ffmpegWrap.GetVideoMetadata(inputPath)
 		if err != nil {
-			return fmt.Errorf("failed to get video metadata: %v", err)
+			return nil, fmt.Errorf("failed to get video metadata: %v", err)
 		}
 
 		croppedPath := inputPath
@@ -96,7 +97,7 @@ func (t *Templater) Process() error {
 
 			probe, err := ffmpeg.Probe(inputPath)
 			if err != nil {
-				return fmt.Errorf("error probing video: %v", err)
+				return nil, fmt.Errorf("error probing video: %v", err)
 			}
 
 			err = ffmpegWrap.ApplyPlatformCrop(
@@ -112,7 +113,7 @@ func (t *Templater) Process() error {
 				t.opts.Verbose,
 			)
 			if err != nil {
-				return errors.WithStack(err)
+				return nil, errors.WithStack(err)
 			}
 		}
 
@@ -121,7 +122,7 @@ func (t *Templater) Process() error {
 		if t.opts.Obscurify {
 			obscurifiedPath := filepath.Join(tempDir, fmt.Sprintf("obscurified_%d."+t.opts.OutputFormat, i))
 			if err := t.ApplyObscurifyEffects(croppedPath, obscurifiedPath); err != nil {
-				return fmt.Errorf("failed to apply obscurify effects to video %s: %v", croppedPath, err)
+				return nil, fmt.Errorf("failed to apply obscurify effects to video %s: %v", croppedPath, err)
 			}
 			processedPath = obscurifiedPath
 		}
@@ -144,7 +145,7 @@ func (t *Templater) Process() error {
 		)
 
 		if err != nil {
-			return fmt.Errorf("failed to optimize video %s: %v", inputPath, err)
+			return nil, fmt.Errorf("failed to optimize video %s: %v", inputPath, err)
 		}
 	}
 
@@ -165,7 +166,7 @@ func (t *Templater) Process() error {
 	switch t.opts.TemplateType {
 	case "1x1":
 		if len(streams) == 0 {
-			return fmt.Errorf("no input streams available")
+			return nil, fmt.Errorf("no input streams available")
 		}
 
 		output = streams[0]
@@ -205,20 +206,28 @@ func (t *Templater) Process() error {
 
 	err = output.Output(t.opts.OutputPath, kwargs).OverWriteOutput().ErrorToStdOut().Run()
 	if err != nil {
-		return fmt.Errorf("failed to create final video: %v", err)
+		return nil, fmt.Errorf("failed to create final video: %v", err)
 	}
 
 	finalFileInfo, err := os.Stat(t.opts.OutputPath)
 	if err != nil {
-		return fmt.Errorf("failed to get final file info: %v", err)
+		return nil, fmt.Errorf("failed to get final file info: %v", err)
 	}
 
 	if finalFileInfo.Size() > config.MaxTotalFileSize {
-		return errors.New(fmt.Sprintf("ERROR Final file too large (%d bytes)",
+		return nil, errors.New(fmt.Sprintf("ERROR Final file too large (%d bytes)",
 			finalFileInfo.Size()))
 	}
 
-	return nil
+	metadata, err := ffmpegWrap.GetVideoMetadata(t.opts.OutputPath)
+	if err != nil {
+		return nil, fmt.Errorf("error getting video metadata: %v", err)
+	}
+
+	return &types.ProcessedOutput{
+		FilePath:        t.opts.OutputPath,
+		DurationSeconds: uint64(metadata.Duration),
+	}, nil
 }
 
 func getRandomColor() string {

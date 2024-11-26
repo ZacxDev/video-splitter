@@ -14,3 +14,8 @@ type ProcessedClip struct {
 	FilePath        string
 	DurationSeconds uint64
 }
+
+type ProcessedOutput struct {
+	FilePath        string
+	DurationSeconds uint64
+}

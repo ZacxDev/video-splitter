@@ -13,10 +13,10 @@ func SplitVideo(opts *config.VideoSplitterOptions) ([]types.ProcessedClip, error
 }
 
 // ApplyTemplate applies a video template to multiple input videos
-func ApplyTemplate(opts *config.VideoTemplateOptions) error {
+func ApplyTemplate(opts *config.VideoTemplateOptions) (*types.ProcessedOutput, error) {
 	plat, err := platform.Get(opts.TargetPlatform)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return processor.NewTemplater(opts, plat).Process()

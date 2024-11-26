@@ -135,7 +135,14 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 	tarPlat, _ := cmd.Flags().GetString("target-platform")
 	opts.TargetPlatform = types.ProcessingPlatform(tarPlat)
 
-	return videoprocessor.ApplyTemplate(opts)
+	processedOutput, err := videoprocessor.ApplyTemplate(opts)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	fmt.Printf("processedOutput %+v\n", processedOutput)
+
+	return nil
 }
 
 func formatSupportedPlatforms() string {
