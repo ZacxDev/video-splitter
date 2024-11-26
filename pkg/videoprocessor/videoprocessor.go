@@ -8,7 +8,7 @@ import (
 )
 
 // SplitVideo splits a video into chunks according to the provided options
-func SplitVideo(opts *config.VideoSplitterOptions) error {
+func SplitVideo(opts *config.VideoSplitterOptions) ([]processor.ProcessedClip, error) {
 	return processor.NewSplitter(opts).Process()
 }
 

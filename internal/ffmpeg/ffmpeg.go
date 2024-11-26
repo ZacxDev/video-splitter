@@ -204,7 +204,15 @@ func (p *Processor) ProcessForPlatform(inputPath, outputPath string, plat platfo
 	return p.processNormalVideo(inputPath, outputPath, plat, startTime, duration, metadata, probe)
 }
 
-func (p *Processor) processNormalVideo(inputPath, outputPath string, plat platform.Platform, startTime float64, duration int, metadata *VideoMetadata, probe string) error {
+func (p *Processor) processNormalVideo(
+	inputPath,
+	outputPath string,
+	plat platform.Platform,
+	startTime float64,
+	duration int,
+	metadata *VideoMetadata,
+	probe string,
+) error {
 	// Get input bitrate
 	inputBitrate, err := getBitrate(metadata, probe)
 	if err != nil && p.verbose {

@@ -9,6 +9,7 @@ import (
 	"github.com/ZacxDev/video-splitter/config"
 	"github.com/ZacxDev/video-splitter/pkg/types"
 	"github.com/ZacxDev/video-splitter/pkg/videoprocessor"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
@@ -106,7 +107,14 @@ func runSplit(cmd *cobra.Command, args []string) error {
 	opts.OutputFormat, _ = cmd.Flags().GetString("format")
 	opts.Verbose, _ = cmd.Flags().GetBool("verbose")
 
-	return videoprocessor.SplitVideo(opts)
+	processedClips, err := videoprocessor.SplitVideo(opts)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	fmt.Printf("processedClips %+v\n", processedClips)
+
+	return nil
 }
 
 func runTemplate(cmd *cobra.Command, args []string) error {
