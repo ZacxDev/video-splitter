@@ -9,3 +9,8 @@ const (
 	ProcessingPlatformTryonhaulcentralPortrait  ProcessingPlatform = "tryonhaulcentral-portrait"
 	ProcessingPlatformTryonhaulcentralLandscape ProcessingPlatform = "tryonhaulcentral-landscape"
 )
+
+type ProcessedClip struct {
+	FilePath        string
+	DurationSeconds uint64
+}

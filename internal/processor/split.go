@@ -9,16 +9,12 @@ import (
 
 	ffmpegWrap "github.com/ZacxDev/video-splitter/internal/ffmpeg"
 	"github.com/ZacxDev/video-splitter/internal/platform"
+	"github.com/ZacxDev/video-splitter/pkg/types"
 	"github.com/pkg/errors"
 )
 
-type ProcessedClip struct {
-	FilePath        string
-	DurationSeconds uint64
-}
-
 // Process handles the video splitting operation
-func (s *Splitter) Process() ([]ProcessedClip, error) {
+func (s *Splitter) Process() ([]types.ProcessedClip, error) {
 	// If no format specified, use platform preference or default to webm
 	outputFormat := strings.ToLower(s.opts.OutputFormat)
 	if outputFormat == "" {
@@ -82,7 +78,7 @@ func (s *Splitter) Process() ([]ProcessedClip, error) {
 		}
 	}
 
-	res := make([]ProcessedClip, 0)
+	res := make([]types.ProcessedClip, 0)
 	for i := 0; i < numChunks; i++ {
 		startTime := float64(i*s.opts.ChunkDuration) + skipSeconds
 
@@ -113,7 +109,7 @@ func (s *Splitter) Process() ([]ProcessedClip, error) {
 			return nil, fmt.Errorf("error getting video metadata: %v", err)
 		}
 
-		res = append(res, ProcessedClip{
+		res = append(res, types.ProcessedClip{
 			FilePath:        outputPath,
 			DurationSeconds: uint64(metadata.Duration),
 		})
