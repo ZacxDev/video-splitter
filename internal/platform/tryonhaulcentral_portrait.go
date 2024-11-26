@@ -9,7 +9,7 @@ func init() {
 }
 
 func (p *Tryonhaulcentral) GetName() types.ProcessingPlatform {
-	return types.ProcessingPlatformTryonhaulcentral
+	return types.ProcessingPlatformTryonhaulcentralPortrait
 }
 
 func (p *Tryonhaulcentral) GetMaxDimensions() (width, height int) {
