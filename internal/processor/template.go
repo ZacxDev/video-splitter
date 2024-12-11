@@ -204,9 +204,45 @@ func (t *Templater) Process() (*types.ProcessedOutput, error) {
 		log.Printf("Creating final output video: %s", t.opts.OutputPath)
 	}
 
-	err = output.Output(t.opts.OutputPath, kwargs).OverWriteOutput().ErrorToStdOut().Run()
+	mainVideoPath := filepath.Join(tempDir, "main."+t.opts.OutputFormat)
+	err = output.Output(mainVideoPath, kwargs).OverWriteOutput().ErrorToStdOut().Run()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create final video: %v", err)
+		return nil, fmt.Errorf("failed to create main video: %v", err)
+	}
+
+	if len(t.opts.OutroLines) > 0 {
+		outroPath, err := t.createOutroVideo(tempDir, mainVideoPath)
+		if err != nil {
+			return nil, err
+		}
+
+		// Create list file for concatenation
+		listPath := filepath.Join(tempDir, "concat.txt")
+		listContent := fmt.Sprintf("file '%s'\nfile '%s'", mainVideoPath, outroPath)
+		if err := os.WriteFile(listPath, []byte(listContent), 0644); err != nil {
+			return nil, fmt.Errorf("failed to create concat list: %v", err)
+		}
+
+		// Concatenate main video with outro
+		err = ffmpeg.Input(
+			listPath,
+			ffmpeg.KwArgs{"f": "concat", "safe": "0"},
+		).Output(
+			t.opts.OutputPath,
+			ffmpeg.KwArgs{
+				"c":        "copy",
+				"movflags": "+faststart",
+			},
+		).OverWriteOutput().ErrorToStdOut().Run()
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to concatenate outro: %v", err)
+		}
+	} else {
+		// If no outro, just move the main video to final destination
+		if err := os.Rename(mainVideoPath, t.opts.OutputPath); err != nil {
+			return nil, fmt.Errorf("failed to move final video: %v", err)
+		}
 	}
 
 	finalFileInfo, err := os.Stat(t.opts.OutputPath)
@@ -306,4 +342,133 @@ func process3x1Template(inputs []*ffmpeg.Stream) *ffmpeg.Stream {
 		"hstack",
 		ffmpeg.Args{"inputs=3"},
 	)
+}
+
+// In config.go, add outro text settings
+const (
+	// ... existing constants ...
+
+	// Outro settings
+	OutroTextSize  = "48"    // Larger font size for outro text
+	OutroDuration  = 5       // Duration in seconds for outro screen
+	OutroTextColor = "white" // Text color for outro
+	OutroFadeIn    = "0.5"   // Fade in duration in seconds
+)
+
+// In VideoTemplateOptions struct in config.go
+type VideoTemplateOptions struct {
+	InputPaths               []string
+	OutputPath               string
+	TemplateType             string
+	OutputFormat             string
+	Verbose                  bool
+	Obscurify                bool
+	LandscapeBottomRightText string
+	PortraitBottomRightText  string
+	TargetPlatform           types.ProcessingPlatform
+	OutroLines               []string // New field for outro text lines
+}
+
+// In processor/template.go, add these new functions
+
+// createOutroVideo generates a video with centered text lines
+func (t *Templater) createOutroVideo(tempDir, mainVideoPath string) (string, error) {
+	if len(t.opts.OutroLines) == 0 {
+		return "", nil
+	}
+
+	outroPath := filepath.Join(tempDir, "outro."+t.opts.OutputFormat)
+
+	metadata, err := ffmpegWrap.GetVideoMetadata(mainVideoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get main video metadata: %v", err)
+	}
+
+	width := metadata.Width
+	height := metadata.Height
+
+	// Adjust dimensions based on orientation if needed
+	if t.platform.ForcePortrait() {
+		if width > height {
+			width, height = height, width // Swap dimensions for portrait mode
+		}
+	}
+
+	// Create filter complex string for text overlays
+	var filterParts []string
+	lineSpacing := height / 15 // Dynamic spacing based on video height
+	totalHeight := len(t.opts.OutroLines) * lineSpacing
+	startY := fmt.Sprintf("(h-%d)/2", totalHeight)
+
+	// Start with black background input label
+	filterParts = append(filterParts, "[0:v]")
+
+	// Add each text overlay
+	for i, line := range t.opts.OutroLines {
+		yPos := fmt.Sprintf("%s+%d", startY, i*lineSpacing)
+
+		// Scale font size based on video height
+		fontSize := height / 20 // Dynamic font size
+
+		// Escape single quotes in the text
+		escapedText := strings.ReplaceAll(line, "'", "'\\''")
+
+		filter := fmt.Sprintf("drawtext=text='%s':"+
+			"fontsize=%d:"+ // Using calculated font size
+			"fontcolor=%s:"+
+			"x=(w-text_w)/2:"+
+			"y=%s:"+
+			"alpha='if(lt(t,%s),t/%s,1)':"+
+			"box=1:boxcolor=black@0.5:boxborderw=5",
+			escapedText,
+			fontSize,
+			OutroTextColor,
+			yPos,
+			OutroFadeIn,
+			OutroFadeIn,
+		)
+		filterParts = append(filterParts, filter)
+
+		if i < len(t.opts.OutroLines)-1 {
+			filterParts = append(filterParts, ",")
+		}
+	}
+
+	// Create a black video with the text overlays
+	stream := ffmpeg.Input(
+		fmt.Sprintf("color=c=black:s=%dx%d:r=30", width, height),
+		ffmpeg.KwArgs{
+			"f": "lavfi",
+			"t": OutroDuration,
+		},
+	)
+
+	// Apply the complete filter complex
+	filterComplex := strings.Join(filterParts, "")
+
+	// Get codec settings
+	codecSettings := ffmpegWrap.GetCodecSettings(t.opts.OutputFormat)
+
+	// Generate the outro video
+	err = stream.Output(
+		outroPath,
+		ffmpeg.KwArgs{
+			"c:v":      codecSettings.VideoCodec,
+			"vf":       filterComplex,
+			"pix_fmt":  "yuv420p",
+			"threads":  ffmpegWrap.GetOptimalThreadCount(),
+			"movflags": "+faststart",
+			// Match video settings with platform requirements
+			"r":         "30",                         // Match framerate
+			"b:v":       t.platform.GetVideoBitrate(), // Match bitrate
+			"profile:v": "high",
+			"level":     "4.0",
+		},
+	).OverWriteOutput().ErrorToStdOut().Run()
+
+	if err != nil {
+		return "", fmt.Errorf("failed to create outro video: %v", err)
+	}
+
+	return outroPath, nil
 }

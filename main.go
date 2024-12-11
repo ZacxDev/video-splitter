@@ -77,6 +77,7 @@ func init() {
 	templateCmd.Flags().StringP("target-platform", "t", "",
 		fmt.Sprintf("Target platform for optimization (%s)",
 			strings.Join(plats, ", ")))
+	templateCmd.Flags().StringArray("outro-text", []string{}, "Lines of text to display in the outro (can be specified multiple times)")
 
 	templateCmd.MarkFlagRequired("output")
 	templateCmd.MarkFlagRequired("video-template")
@@ -134,6 +135,9 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 
 	tarPlat, _ := cmd.Flags().GetString("target-platform")
 	opts.TargetPlatform = types.ProcessingPlatform(tarPlat)
+
+	outroText, _ := cmd.Flags().GetStringArray("outro-text")
+	opts.OutroLines = outroText
 
 	processedOutput, err := videoprocessor.ApplyTemplate(opts)
 	if err != nil {

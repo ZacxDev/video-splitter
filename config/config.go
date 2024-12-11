@@ -24,6 +24,7 @@ type VideoTemplateOptions struct {
 	LandscapeBottomRightText string
 	PortraitBottomRightText  string
 	TargetPlatform           types.ProcessingPlatform
+	OutroLines               []string
 }
 
 type VideoDimensions struct {
@@ -63,4 +64,9 @@ const (
 	TextColor       = "white" // Text color
 	TextBorderColor = "black" // Text border color
 	TextBorderWidth = "2"     // Text border width
+
+	OutroTextSize  = "48"    // Larger font size for outro text
+	OutroDuration  = 5       // Duration in seconds for outro screen
+	OutroTextColor = "white" // Text color for outro
+	OutroFadeIn    = "0.5"
 )
