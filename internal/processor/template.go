@@ -278,7 +278,7 @@ func getRandomColor() string {
 
 func (t *Templater) addBottomRightText(input *ffmpeg.Stream, landscapeText, portraitText string, isPortrait bool) *ffmpeg.Stream {
 	text := landscapeText
-	fontsize := "28"
+	fontsize := "32"
 	if isPortrait {
 		fontsize = "24"
 		text = portraitText
