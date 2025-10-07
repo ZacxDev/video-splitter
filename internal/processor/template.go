@@ -418,7 +418,7 @@ func (t *Templater) createOutroVideo(tempDir, mainVideoPath string) (string, err
 			"fontcolor=%s:"+
 			"x=(w-text_w)/2:"+
 			"y=%s:"+
-			"alpha='if(lt(t,%s),t/%s,1)':"+
+			"alpha=if(lt(t,%s),t/%s,1):"+
 			"box=1:boxcolor=black@0.5:boxborderw=5",
 			escapedText,
 			fontSize,
