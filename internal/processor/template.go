@@ -2,6 +2,7 @@ package processor
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,6 +16,53 @@ import (
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 	"golang.org/x/exp/rand"
 )
+
+// moveFile moves a file from src to dst, handling cross-filesystem moves
+// by falling back to copy+delete when os.Rename fails with EXDEV
+func moveFile(src, dst string) error {
+	// Try rename first (fastest, works on same filesystem)
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+
+	// Check if it's a cross-device link error
+	// If so, fall back to copy + delete
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		os.Remove(dst) // Clean up partial file
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	// Ensure data is flushed to disk
+	if err := dstFile.Sync(); err != nil {
+		os.Remove(dst)
+		return fmt.Errorf("failed to sync file: %w", err)
+	}
+
+	// Close files before removing source
+	srcFile.Close()
+	dstFile.Close()
+
+	// Remove source file
+	if err := os.Remove(src); err != nil {
+		return fmt.Errorf("failed to remove source file: %w", err)
+	}
+
+	return nil
+}
 
 func (t *Templater) Process() (*types.ProcessedOutput, error) {
 	if len(t.opts.InputPaths) == 0 {
@@ -240,7 +288,7 @@ func (t *Templater) Process() (*types.ProcessedOutput, error) {
 		}
 	} else {
 		// If no outro, just move the main video to final destination
-		if err := os.Rename(mainVideoPath, t.opts.OutputPath); err != nil {
+		if err := moveFile(mainVideoPath, t.opts.OutputPath); err != nil {
 			return nil, fmt.Errorf("failed to move final video: %v", err)
 		}
 	}
