@@ -33,7 +33,7 @@ func (p *TryonhaulcentralLandscape) GetAudioCodec() string {
 }
 
 func (p *TryonhaulcentralLandscape) GetVideoBitrate() string {
-	return "4M"
+	return "8M" // Increased from 4M for better 1080p quality
 }
 
 func (p *TryonhaulcentralLandscape) GetAudioBitrate() string {

@@ -47,7 +47,7 @@ var codecPresets = map[string]CodecSettings{
 	"mp4": {
 		VideoCodec:      "libx264",
 		AudioCodec:      "aac",
-		DefaultCRF:      0,
+		DefaultCRF:      18, // CRF 18 = high quality (range: 0=lossless, 23=default, 51=worst)
 		ContainerFormat: "mp4",
 		FileExtension:   ".mp4",
 		EncoderPresets: map[string]ffmpeg.KwArgs{
@@ -318,6 +318,7 @@ func (p *Processor) processNormalVideo(
 	// Add codec-specific settings
 	switch plat.GetVideoCodec() {
 	case "libx264":
+		outputKwargs["crf"] = GetCodecSettings("mp4").DefaultCRF // CRF 18 for high quality
 		outputKwargs["profile:v"] = "high"
 		outputKwargs["level"] = "4.0"
 		outputKwargs["preset"] = "slower"
@@ -326,6 +327,7 @@ func (p *Processor) processNormalVideo(
 		outputKwargs["bufsize"] = fmt.Sprintf("%dM", 2*targetBitrate/1000000)
 
 	case "libvpx-vp9":
+		outputKwargs["crf"] = GetCodecSettings("webm").DefaultCRF // CRF 15 for VP9
 		outputKwargs["deadline"] = "good"
 		outputKwargs["cpu-used"] = 2
 		outputKwargs["row-mt"] = 1
@@ -748,6 +750,7 @@ func ApplyPlatformCrop(
 	// Add codec-specific settings
 	switch plat.GetVideoCodec() {
 	case "libx264":
+		outputKwargs["crf"] = GetCodecSettings("mp4").DefaultCRF // CRF 18 for high quality
 		outputKwargs["profile:v"] = "high"
 		outputKwargs["level"] = "4.0"
 		outputKwargs["preset"] = "slower"
@@ -756,6 +759,7 @@ func ApplyPlatformCrop(
 		outputKwargs["bufsize"] = fmt.Sprintf("%dM", 2*targetBitrate/1000000)
 
 	case "libvpx-vp9":
+		outputKwargs["crf"] = GetCodecSettings("webm").DefaultCRF // CRF 15 for VP9
 		outputKwargs["deadline"] = "good"
 		outputKwargs["cpu-used"] = 2
 		outputKwargs["row-mt"] = 1
