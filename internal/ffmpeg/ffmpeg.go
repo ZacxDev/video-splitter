@@ -6,15 +6,82 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ZacxDev/video-splitter/config"
 	"github.com/ZacxDev/video-splitter/internal/platform"
 	"github.com/pkg/errors"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
+
+var (
+	gpuAvailable     bool
+	gpuCheckOnce     sync.Once
+	useGPU           bool
+)
+
+// init checks for GPU availability at startup
+func init() {
+	checkGPUAvailability()
+}
+
+// checkGPUAvailability detects if NVIDIA GPU encoding is available
+func checkGPUAvailability() {
+	gpuCheckOnce.Do(func() {
+		// Check if USE_GPU env var is set
+		if os.Getenv("USE_GPU") == "false" {
+			log.Println("GPU encoding disabled via USE_GPU=false")
+			gpuAvailable = false
+			useGPU = false
+			return
+		}
+
+		// Check if ffmpeg has h264_nvenc encoder
+		cmd := exec.Command("ffmpeg", "-hide_banner", "-encoders")
+		output, err := cmd.Output()
+		if err != nil {
+			log.Printf("Could not check ffmpeg encoders: %v", err)
+			gpuAvailable = false
+			useGPU = false
+			return
+		}
+
+		if strings.Contains(string(output), "h264_nvenc") {
+			// Try a quick encode test to verify GPU is actually working
+			testCmd := exec.Command("ffmpeg", "-hide_banner", "-f", "lavfi", "-i", "nullsrc=s=256x256:d=0.1", "-c:v", "h264_nvenc", "-f", "null", "-")
+			if err := testCmd.Run(); err == nil {
+				gpuAvailable = true
+				useGPU = true
+				log.Println("✅ NVIDIA GPU encoding (h264_nvenc) available and enabled")
+			} else {
+				log.Printf("h264_nvenc encoder found but GPU test failed: %v", err)
+				gpuAvailable = false
+				useGPU = false
+			}
+		} else {
+			log.Println("h264_nvenc encoder not found, using CPU encoding (libx264)")
+			gpuAvailable = false
+			useGPU = false
+		}
+	})
+}
+
+// IsGPUAvailable returns whether GPU encoding is available
+func IsGPUAvailable() bool {
+	return gpuAvailable
+}
+
+// GetVideoCodec returns the appropriate video codec based on GPU availability
+func GetVideoCodec() string {
+	if useGPU {
+		return "h264_nvenc"
+	}
+	return "libx264"
+}
 
 type CodecSettings struct {
 	VideoCodec      string
@@ -66,14 +133,64 @@ var codecPresets = map[string]CodecSettings{
 			},
 		},
 	},
+	"mp4_nvenc": {
+		VideoCodec:      "h264_nvenc",
+		AudioCodec:      "aac",
+		DefaultCRF:      23, // NVENC uses CQ (constant quality) mode, 23 is similar to CRF 18 for x264
+		ContainerFormat: "mp4",
+		FileExtension:   ".mp4",
+		EncoderPresets: map[string]ffmpeg.KwArgs{
+			"high_quality": {
+				"preset":    "p4",       // NVENC preset: p1 (fastest) to p7 (slowest/best quality)
+				"tune":      "hq",       // High quality tuning
+				"profile:v": "high",
+				"level":     "5.2",
+				"movflags":  "+faststart",
+				"rc":        "vbr",      // Variable bitrate for better quality
+				"cq":        23,         // Constant quality level
+				"b_ref_mode": "middle",  // B-frame reference mode
+				"spatial-aq": 1,         // Spatial adaptive quantization
+				"temporal-aq": 1,        // Temporal adaptive quantization
+			},
+			"balanced": {
+				"preset":    "p4",
+				"tune":      "hq",
+				"profile:v": "high",
+				"movflags":  "+faststart",
+				"rc":        "vbr",
+				"cq":        25,
+			},
+		},
+	},
 }
 
 func GetCodecSettings(outputFormat string) CodecSettings {
+	// For MP4 format, check if GPU is available and use NVENC
+	if outputFormat == "mp4" && useGPU {
+		return codecPresets["mp4_nvenc"]
+	}
 	if settings, ok := codecPresets[outputFormat]; ok {
 		return settings
 	}
 	// Default to WebM if format not specified or invalid
 	return codecPresets["webm"]
+}
+
+// GetCodecSettingsForCodec returns codec settings based on the codec name
+func GetCodecSettingsForCodec(codec string) CodecSettings {
+	switch codec {
+	case "h264_nvenc":
+		return codecPresets["mp4_nvenc"]
+	case "libx264":
+		return codecPresets["mp4"]
+	case "libvpx-vp9":
+		return codecPresets["webm"]
+	default:
+		if useGPU {
+			return codecPresets["mp4_nvenc"]
+		}
+		return codecPresets["mp4"]
+	}
 }
 
 // VideoMetadata contains metadata about a video file
@@ -315,8 +432,29 @@ func (p *Processor) processNormalVideo(
 		outputKwargs["filter_complex"] = filterComplex
 	}
 
+	// Determine actual codec to use (GPU if available for h264)
+	requestedCodec := plat.GetVideoCodec()
+	actualCodec := requestedCodec
+	if requestedCodec == "libx264" && useGPU {
+		actualCodec = "h264_nvenc"
+	}
+	outputKwargs["c:v"] = actualCodec
+
 	// Add codec-specific settings
-	switch plat.GetVideoCodec() {
+	switch actualCodec {
+	case "h264_nvenc":
+		// NVENC GPU encoding settings
+		outputKwargs["preset"] = "p4"        // Balanced speed/quality
+		outputKwargs["tune"] = "hq"          // High quality tuning
+		outputKwargs["profile:v"] = "high"
+		outputKwargs["level"] = "4.0"
+		outputKwargs["rc"] = "vbr"           // Variable bitrate
+		outputKwargs["cq"] = 23              // Constant quality (similar to CRF 18)
+		outputKwargs["maxrate"] = bitrateStr
+		outputKwargs["bufsize"] = fmt.Sprintf("%dM", 2*targetBitrate/1000000)
+		outputKwargs["spatial-aq"] = 1
+		outputKwargs["temporal-aq"] = 1
+
 	case "libx264":
 		outputKwargs["crf"] = GetCodecSettings("mp4").DefaultCRF // CRF 18 for high quality
 		outputKwargs["profile:v"] = "high"
@@ -734,8 +872,15 @@ func ApplyPlatformCrop(
 
 	stream := ffmpeg.Input(inputPath, inputKwargs)
 
+	// Determine actual codec to use (GPU if available for h264)
+	requestedCodec := plat.GetVideoCodec()
+	actualCodec := requestedCodec
+	if requestedCodec == "libx264" && useGPU {
+		actualCodec = "h264_nvenc"
+	}
+
 	outputKwargs := ffmpeg.KwArgs{
-		"c:v": plat.GetVideoCodec(),
+		"c:v": actualCodec,
 		//"c:a":            plat.GetAudioCodec(),
 		"b:v": bitrateStr,
 		//"b:a":            plat.GetAudioBitrate(),
@@ -748,7 +893,20 @@ func ApplyPlatformCrop(
 	}
 
 	// Add codec-specific settings
-	switch plat.GetVideoCodec() {
+	switch actualCodec {
+	case "h264_nvenc":
+		// NVENC GPU encoding settings
+		outputKwargs["preset"] = "p4"
+		outputKwargs["tune"] = "hq"
+		outputKwargs["profile:v"] = "high"
+		outputKwargs["level"] = "4.0"
+		outputKwargs["rc"] = "vbr"
+		outputKwargs["cq"] = 23
+		outputKwargs["maxrate"] = bitrateStr
+		outputKwargs["bufsize"] = fmt.Sprintf("%dM", 2*targetBitrate/1000000)
+		outputKwargs["spatial-aq"] = 1
+		outputKwargs["temporal-aq"] = 1
+
 	case "libx264":
 		outputKwargs["crf"] = GetCodecSettings("mp4").DefaultCRF // CRF 18 for high quality
 		outputKwargs["profile:v"] = "high"
