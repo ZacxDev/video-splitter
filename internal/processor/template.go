@@ -210,37 +210,38 @@ func (t *Templater) Process() (*types.ProcessedOutput, error) {
 	codecSettings := ffmpegWrap.GetCodecSettings(outputFormat)
 
 	var output *ffmpeg.Stream
-	var kwargs ffmpeg.KwArgs
+	// Always set base kwargs with GPU-aware codec settings
+	kwargs := ffmpeg.KwArgs{
+		"c:v":        codecSettings.VideoCodec,
+		"c:a":        codecSettings.AudioCodec,
+		"pix_fmt":    "yuv420p",
+		"threads":    ffmpegWrap.GetOptimalThreadCount(),
+		"movflags":   "+faststart",
+		"g":          60,
+		"keyint_min": 30,
+	}
+
+	// Add NVENC-specific settings if using GPU
+	if codecSettings.VideoCodec == "h264_nvenc" {
+		kwargs["preset"] = "p4"
+		kwargs["tune"] = "hq"
+		kwargs["profile:v"] = "high"
+		kwargs["level"] = "4.0"
+		kwargs["rc"] = "vbr"
+		kwargs["cq"] = 23
+	}
+
 	switch t.opts.TemplateType {
 	case "1x1":
 		if len(streams) == 0 {
 			return nil, fmt.Errorf("no input streams available")
 		}
-
 		output = streams[0]
 	case "2x2":
-		kwargs = ffmpeg.KwArgs{
-			"c:v":        codecSettings.VideoCodec,
-			"c:a":        codecSettings.AudioCodec,
-			"b:v":        "0",
-			"pix_fmt":    "yuv420p",
-			"threads":    ffmpegWrap.GetOptimalThreadCount(),
-			"movflags":   "+faststart",
-			"g":          60,
-			"keyint_min": 30,
-		}
+		kwargs["b:v"] = "0"
 		output = process2x2Template(streams)
 	case "3x1":
-		kwargs = ffmpeg.KwArgs{
-			"c:v":        codecSettings.VideoCodec,
-			"c:a":        codecSettings.AudioCodec,
-			"b:v":        "0",
-			"pix_fmt":    "yuv420p",
-			"threads":    ffmpegWrap.GetOptimalThreadCount(),
-			"movflags":   "+faststart",
-			"g":          60,
-			"keyint_min": 30,
-		}
+		kwargs["b:v"] = "0"
 		output = process3x1Template(streams)
 	}
 
@@ -494,24 +495,34 @@ func (t *Templater) createOutroVideo(tempDir, mainVideoPath string) (string, err
 	// Apply the complete filter complex
 	filterComplex := strings.Join(filterParts, "")
 
-	// Get codec settings
+	// Get codec settings (GPU-aware)
 	codecSettings := ffmpegWrap.GetCodecSettings(t.opts.OutputFormat)
+
+	// Build output kwargs with GPU-aware settings
+	outroKwargs := ffmpeg.KwArgs{
+		"c:v":       codecSettings.VideoCodec,
+		"vf":        filterComplex,
+		"pix_fmt":   "yuv420p",
+		"threads":   ffmpegWrap.GetOptimalThreadCount(),
+		"movflags":  "+faststart",
+		"r":         "30",
+		"b:v":       t.platform.GetVideoBitrate(),
+		"profile:v": "high",
+		"level":     "4.0",
+	}
+
+	// Add NVENC-specific settings if using GPU
+	if codecSettings.VideoCodec == "h264_nvenc" {
+		outroKwargs["preset"] = "p4"
+		outroKwargs["tune"] = "hq"
+		outroKwargs["rc"] = "vbr"
+		outroKwargs["cq"] = 23
+	}
 
 	// Generate the outro video
 	err = stream.Output(
 		outroPath,
-		ffmpeg.KwArgs{
-			"c:v":      codecSettings.VideoCodec,
-			"vf":       filterComplex,
-			"pix_fmt":  "yuv420p",
-			"threads":  ffmpegWrap.GetOptimalThreadCount(),
-			"movflags": "+faststart",
-			// Match video settings with platform requirements
-			"r":         "30",                         // Match framerate
-			"b:v":       t.platform.GetVideoBitrate(), // Match bitrate
-			"profile:v": "high",
-			"level":     "4.0",
-		},
+		outroKwargs,
 	).OverWriteOutput().ErrorToStdOut().Run()
 
 	if err != nil {
