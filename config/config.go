@@ -46,10 +46,10 @@ const (
 	Template3x1Height = OutputHeight     // 1080
 
 	// Target maximum file sizes (in bytes)
-	Template1x1MaxSize = 30 * 1024 * 1024 // 30MB for single video
-	Template2x2MaxSize = 8 * 1024 * 1024  // 8MB per quadrant
-	Template3x1MaxSize = 10 * 1024 * 1024 // 10MB per third
-	MaxTotalFileSize   = 50 * 1024 * 1024 // 50MB total
+	Template1x1MaxSize = 50 * 1024 * 1024  // 50MB for single video
+	Template2x2MaxSize = 15 * 1024 * 1024  // 15MB per quadrant
+	Template3x1MaxSize = 20 * 1024 * 1024  // 20MB per third
+	MaxTotalFileSize   = 150 * 1024 * 1024 // 150MB total
 
 	// Quality thresholds
 	MinCRF = 18 // Best quality
