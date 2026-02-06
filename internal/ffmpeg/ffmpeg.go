@@ -447,7 +447,7 @@ func (p *Processor) processNormalVideo(
 		outputKwargs["preset"] = "p4"        // Balanced speed/quality
 		outputKwargs["tune"] = "hq"          // High quality tuning
 		outputKwargs["profile:v"] = "high"
-		outputKwargs["level"] = "4.0"
+		outputKwargs["level"] = "5.1"        // Level 5.1 supports 1080p@120fps
 		outputKwargs["rc"] = "vbr"           // Variable bitrate
 		outputKwargs["cq"] = 23              // Constant quality (similar to CRF 18)
 		outputKwargs["maxrate"] = bitrateStr
@@ -899,7 +899,7 @@ func ApplyPlatformCrop(
 		outputKwargs["preset"] = "p4"
 		outputKwargs["tune"] = "hq"
 		outputKwargs["profile:v"] = "high"
-		outputKwargs["level"] = "4.0"
+		outputKwargs["level"] = "5.1"        // Level 5.1 supports 1080p@120fps
 		outputKwargs["rc"] = "vbr"
 		outputKwargs["cq"] = 23
 		outputKwargs["maxrate"] = bitrateStr
@@ -910,7 +910,7 @@ func ApplyPlatformCrop(
 	case "libx264":
 		outputKwargs["crf"] = GetCodecSettings("mp4").DefaultCRF // CRF 18 for high quality
 		outputKwargs["profile:v"] = "high"
-		outputKwargs["level"] = "4.0"
+		outputKwargs["level"] = "5.1"        // Level 5.1 supports 1080p@120fps
 		outputKwargs["preset"] = "slower"
 		outputKwargs["x264opts"] = "no-scenecut"
 		outputKwargs["maxrate"] = bitrateStr
