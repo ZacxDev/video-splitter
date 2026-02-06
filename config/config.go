@@ -21,6 +21,7 @@ type VideoTemplateOptions struct {
 	OutputFormat             string // "mp4" or "webm"
 	Verbose                  bool
 	Obscurify                bool
+	SkipOptimize             bool   // Skip the optimize pass when input is already properly encoded
 	LandscapeBottomRightText string
 	PortraitBottomRightText  string
 	TargetPlatform           types.ProcessingPlatform

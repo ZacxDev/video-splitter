@@ -175,6 +175,13 @@ func (t *Templater) Process() (*types.ProcessedOutput, error) {
 			processedPath = obscurifiedPath
 		}
 
+		// Skip optimize pass if SkipOptimize is enabled and no obscurification was applied
+		// The cropped video is already properly encoded with GPU acceleration
+		if t.opts.SkipOptimize && !t.opts.Obscurify {
+			optimizedPaths = append(optimizedPaths, processedPath)
+			continue
+		}
+
 		optimizedPath := filepath.Join(tempDir, fmt.Sprintf("optimized_%d."+t.opts.OutputFormat, i))
 		optimizedPaths = append(optimizedPaths, optimizedPath)
 
