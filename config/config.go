@@ -50,7 +50,7 @@ const (
 	Template1x1MaxSize = 50 * 1024 * 1024  // 50MB for single video
 	Template2x2MaxSize = 15 * 1024 * 1024  // 15MB per quadrant
 	Template3x1MaxSize = 20 * 1024 * 1024  // 20MB per third
-	MaxTotalFileSize   = 150 * 1024 * 1024 // 150MB total
+	MaxTotalFileSize   = 300 * 1024 * 1024 // 300MB total (landscape 1080p can be 200-250MB)
 
 	// Quality thresholds
 	MinCRF = 18 // Best quality
