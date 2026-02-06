@@ -226,7 +226,7 @@ func (t *Templater) Process() (*types.ProcessedOutput, error) {
 		kwargs["preset"] = "p4"
 		kwargs["tune"] = "hq"
 		kwargs["profile:v"] = "high"
-		kwargs["level"] = "4.0"
+		kwargs["level"] = "5.1" // Level 5.1 supports 1080p@120fps
 		kwargs["rc"] = "vbr"
 		kwargs["cq"] = 23
 	}
@@ -508,7 +508,7 @@ func (t *Templater) createOutroVideo(tempDir, mainVideoPath string) (string, err
 		"r":         "30",
 		"b:v":       t.platform.GetVideoBitrate(),
 		"profile:v": "high",
-		"level":     "4.0",
+		"level":     "5.1", // Level 5.1 supports 1080p@120fps
 	}
 
 	// Add NVENC-specific settings if using GPU
